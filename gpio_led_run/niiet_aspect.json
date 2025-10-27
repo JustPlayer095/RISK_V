@@ -1,0 +1,48 @@
+{
+    "name": "gpio_led_run",
+    "device": "K1921VG015",
+    "isPlib": true,
+    "middleware": {},
+    "projectIncludes": [],
+    "projectLibraries": [],
+    "compilerFlags": {
+        "otherFlags": "",
+        "defines": [
+            {
+                "name": "RETARGET",
+                "value": ""
+            }
+        ],
+        "system_defines": [
+            {
+                "name": "HSECLK_VAL",
+                "value": "16000000"
+            },
+            {
+                "name": "SYSCLK_PLL",
+                "value": ""
+            },
+            {
+                "name": "CKO_PLL0",
+                "value": ""
+            }
+        ],
+        "march": {
+            "base": "rv32i",
+            "extensions": [
+                "m",
+                "a",
+                "c",
+                "_zicsr"
+            ]
+        },
+        "mabi": {
+            "base": "ilp32",
+            "extensions": []
+        },
+        "optimisation": "O0"
+    },
+    "linkerFlags": {
+        "scriptFile": "./ldscripts/k1921vg015_ram.ld"
+    }
+}
