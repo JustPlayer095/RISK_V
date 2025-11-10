@@ -10,7 +10,7 @@
             "name": "Debug NIIET Run_leds",
             "type": "cppdbg",
             "request": "launch",
-            "program": "c:\\Users\\kac\\Desktop\\RISK-V_projects\\Run_leds\\build\\Run_leds.elf",
+            "program": "c:\\_WORKSPACE\\RISK-V_projects\\Run_leds\\build\\Run_leds.elf",
             "cwd": "${workspaceFolder}",
             "MIMode": "gdb",
             "miDebuggerPath": "C:\\Users\\kac\\.niiet_aspect\\riscv_gcc_windows\\bin\\riscv64-unknown-elf-gdb.exe",
@@ -19,7 +19,7 @@
                     "text": "target extended-remote localhost:3333"
                 },
                 {
-                    "text": "exec-file c:\\\\Users\\\\kac\\\\Desktop\\\\RISK-V_projects\\\\Run_leds\\\\build\\\\Run_leds.elf"
+                    "text": "exec-file c:\\\\_WORKSPACE\\\\RISK-V_projects\\\\Run_leds\\\\build\\\\Run_leds.elf"
                 },
                 {
                     "text": "monitor reset halt"

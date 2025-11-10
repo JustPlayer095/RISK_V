@@ -1,8 +1,0 @@
-{
-    "inc": [ "./Include" ],
-    "linker": {
-        "flash": "./ldscripts/k1921vg015_flash.ld",
-        "ram": "./ldscripts/k1921vg015_ram.ld"
-    },
-    "linkerLibrary": "./ldscripts"
-}

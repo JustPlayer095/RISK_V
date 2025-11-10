@@ -1,14 +1,17 @@
-
 //-- Includes ------------------------------------------------------------------
 #include "device/Include/K1921VG015.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include "device/Include/system_k1921vg015.h"
 #include "device/Include/retarget.h"
 #include "device/Include/plic.h"
+#include "plib/inc/plib015_gpio.h"
+#include "plib/inc/plib015_tmr32.h"
+#include "osdp/osdp_min.h"
 
 //-- Defines -------------------------------------------------------------------
-#define UART1_BAUD  115200
+#define UART1_BAUD  9600
 
 #define UBUFF_SIZE 128
 
@@ -16,9 +19,16 @@
 static volatile char rx_line_buf[UBUFF_SIZE];
 static volatile uint32_t rx_idx = 0;
 static volatile uint8_t rx_line_ready = 0;
-
+static uint8_t prev_btn_state = 1; // с PU отпущенная кнопка = 1
+static volatile uint8_t led_state = 0; // состояние светодиода (0=выкл,1=вкл)
+static uint8_t pressed_lock = 0; // блок повторного срабатывания, пока кнопка не отпущена стабильно
 static void uart1_irq_handler(void);
 static void uart_irq_init(void);
+static void gpio_init(void);
+static void delay_debounce(void);
+static void tmr32_init(void);
+static void tmr32_irq_handler(void);
+ 
 
 void UART1_init()
 {
@@ -56,9 +66,13 @@ void periph_init()
   SystemCoreClockUpdate();
   retarget_init();
   UART1_init();
+  // Инициализация OSDP с адресом PD = 0x01
+  osdp_init(0x01);
+  gpio_init();
+  tmr32_init();
   uart_irq_init();
   InterruptEnable();
-  printf("Hello World!");
+  printf("Hello World!\r\n");
 }
 
 //--- USER FUNCTIONS ----------------------------------------------------------------------
@@ -91,20 +105,9 @@ static void uart_irq_init(void)
 // Обработчик прерывания UART1 (через PLIC)
 static void uart1_irq_handler(void)
 {
-  // Если строка ещё не обработана, накапливаем; иначе просто дренируем FIFO
   while (!RETARGET_UART->FR_bit.RXFE) {
-    char ch = (char)RETARGET_UART->DR_bit.DATA;
-    if (!rx_line_ready) {
-      if (ch == '\r' || ch == '\n') {
-        if (rx_idx > 0) {
-          rx_line_ready = 1; // главная петля обработает содержимое
-        }
-      } else {
-        if (rx_idx < (UBUFF_SIZE - 1)) {
-          rx_line_buf[rx_idx++] = ch;
-        }
-      }
-    }
+    uint8_t ch = (uint8_t)RETARGET_UART->DR_bit.DATA;
+    osdp_on_rx_byte(ch);
   }
 
   // Очистить флаги источников прерываний
@@ -116,6 +119,79 @@ static void uart1_irq_handler(void)
                        UART_ICR_BEIC_Msk;
 }
 
+ 
+
+static void gpio_init(void)
+{
+  // Тактирование GPIOA уже включено в UART1_init()
+
+  GPIO_Init_TypeDef gpio;
+
+  // LED на PA0
+  GPIO_StructInit(&gpio);
+  gpio.Pin = GPIO_Pin_0;
+  gpio.Out = ENABLE;                // включить выход
+  gpio.AltFunc = DISABLE;           // обычный GPIO
+  gpio.AltFuncNum = GPIO_AltFuncNum_None;
+  gpio.OutMode = GPIO_OutMode_PP;   // push-pull
+  gpio.InMode = GPIO_InMode_Schmitt;
+  gpio.PullMode = GPIO_PullMode_Disable;
+  GPIO_Init(GPIOA, &gpio);
+  GPIO_ClearBits(GPIOA, GPIO_Pin_0); // LED погашен
+
+  // Кнопка на PA1 (вход, внутренняя подтяжка к питанию)
+  GPIO_StructInit(&gpio);
+  gpio.Pin = GPIO_Pin_1;
+  gpio.Out = DISABLE;               // вход
+  gpio.AltFunc = DISABLE;
+  gpio.AltFuncNum = GPIO_AltFuncNum_None;
+  gpio.InMode = GPIO_InMode_Schmitt;
+  gpio.PullMode = GPIO_PullMode_PU; // подтяжка к VDD
+  GPIO_Init(GPIOA, &gpio);
+
+  // Аппаратная фильтрация дребезга: пересинхронизация + квалификатор входа
+  GPIO_SyncCmd(GPIOA, GPIO_Pin_1, ENABLE);
+  GPIO_QualSampleConfig(GPIOA, 1000); // период дискретизации фильтра (такты HCLK)
+  GPIO_QualModeConfig(GPIOA, GPIO_Pin_1, GPIO_QualMode_6Sample); // более жесткая фильтрация
+  GPIO_QualCmd(GPIOA, GPIO_Pin_1, ENABLE);
+}
+
+// Таймер 1 мс на TMR32: 
+static volatile uint32_t ms_ticks = 0;
+
+static void tmr32_init(void)
+{
+  // Тактирование TMR32
+  RCU->CGCFGAPB_bit.TMR32EN = 1;
+  RCU->RSTDISAPB_bit.TMR32EN = 1;
+
+  // Настройка таймера: SYSCLK / 8, режим Up до CAPCOM0, период ~1 мс
+  TMR32_SetClksel(TMR32_Clksel_SysClk);
+  TMR32_SetDivider(TMR32_Div_8);
+  TMR32_SetMode(TMR32_Mode_Capcom_Up);
+  uint32_t cmp = (SystemCoreClock / 8u) / 1000u; // 1 мс
+  if (cmp == 0) cmp = 1;
+  TMR32_CAPCOM_SetComparator(TMR32_CAPCOM_0, cmp);
+  TMR32_SetCounter(0);
+
+  // Прерывание по переполнению таймера (обновление)
+  TMR32_ITCmd(TMR32_IT_TimerUpdate, ENABLE);
+
+  // Регистрация обработчика в PLIC
+  PLIC_SetPriority(PLIC_TMR32_VECTNUM, 1);
+  PLIC_SetIrqHandler(Plic_Mach_Target, PLIC_TMR32_VECTNUM, tmr32_irq_handler);
+  PLIC_IntEnable(Plic_Mach_Target, PLIC_TMR32_VECTNUM);
+}
+
+static void tmr32_irq_handler(void)
+{
+  // Инкремент тиков, сброс флага
+  ms_ticks++;
+  TMR32_ITClear(TMR32_IT_TimerUpdate);
+}
+
+
+
 
 //-- Main ----------------------------------------------------------------------
 int main(void)
@@ -123,16 +199,72 @@ int main(void)
   periph_init();
   while(1)
   {
+
     if (rx_line_ready) {
-      for (uint32_t i = 0; i < rx_idx; i++) {
-        retarget_put_char(rx_line_buf[i]);
+      // Нулевая терминация для разбора команды
+      if (rx_idx < UBUFF_SIZE) {
+        rx_line_buf[rx_idx] = '\0';
+      } else {
+        rx_line_buf[UBUFF_SIZE - 1] = '\0';
       }
-      retarget_put_char('\r');
-      retarget_put_char('\n');
+
+      // Команды: clear — очистить экран терминала (ANSI)
+      if (strcmp((const char*)rx_line_buf, "clear") == 0) {
+        printf("\x1B[2J\x1B[H"); // \x1B[2J - очищаем терминал, \x1B[H - возвращаем курсор в начало терминала
+      } else {
+        // Поведение по умолчанию: эхо
+        for (uint32_t i = 0; i < rx_idx; i++) {
+          retarget_put_char(rx_line_buf[i]);
+        }
+        retarget_put_char('\r');
+        retarget_put_char('\n');
+      }
+
       rx_idx = 0;
       rx_line_ready = 0;
     }
+
+    // Фиксация: переключаем состояние LED по каждому нажатию (сигнал 1->0)
+    uint8_t btn_now = GPIO_ReadBit(GPIOA, GPIO_Pin_1) ? 1 : 0;
+    // Неблокирующий антидребезг на 1 мс тикере
+    static uint32_t last_event_ms = 0;
+    const uint32_t debounce_ms = 30;
+
+    if (!pressed_lock) {
+      if (prev_btn_state == 1 && btn_now == 0) {
+        uint32_t now = ms_ticks;
+        if ((now - last_event_ms) >= debounce_ms) {
+          led_state ^= 1u; // переключение состояния светодиода
+          if (led_state) {
+            GPIO_SetBits(GPIOA, GPIO_Pin_0);
+            printf("LED ON\r\n");
+          } else {
+            GPIO_ClearBits(GPIOA, GPIO_Pin_0);
+            printf("LED OFF\r\n");
+          }
+          pressed_lock = 1;
+          last_event_ms = now;
+        }
+      }
+    } else {
+      if (prev_btn_state == 0 && btn_now == 1) {
+        uint32_t now = ms_ticks;
+        if ((now - last_event_ms) >= debounce_ms) {
+          pressed_lock = 0;
+          last_event_ms = now;
+        }
+      }
+    }
+    prev_btn_state = btn_now;
+
   }
 
   return 0;
+}
+
+// Короткая задержка для подавления дребезга
+static void delay_debounce(void) {
+  for (volatile uint32_t i = 0; i < 50000; i++) {
+    __asm volatile("nop");
+  }
 }
