@@ -39,7 +39,7 @@
 extern "C" {
 #endif
 
-#include "K1921VG015.h"
+#include "../../device/Include/K1921VG015.h"
 
 /** @addtogroup Exported_macro Макросы
   * @{

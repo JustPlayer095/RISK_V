@@ -1,11 +1,11 @@
 /*******************************************************************************
  *
- *  МОДУЛЬ        : OsdpCrypto.c
+ *          : OsdpCrypto.c
  *
- *  Автор         : Л.Стасенко
- *  Дата начала   : 20.08.2024
- *  Версия        : 1.1
- *  Комментарии    : Поддержка шифрованного обмена для протокола OSDP 
+ *           : .
+ *      : 20.08.2024
+ *          : 1.1
+ *      :      OSDP 
  *                  (V 2.1.6 - 2014)
  ******************************************************************************/
 /*
@@ -26,24 +26,24 @@
 tSecurExchState SecurExchState = stPlain;
 //
 volatile uint8_t SecurModeOn = 0;
-// Флаг что можно включить защищенный режим
+//      
 volatile uint8_t SecureReady = 0;
 
 /*******************************************************************************
  *               Security channel variables as struct
  *******************************************************************************/
 typedef struct  {
-  uint8_t pd_client_uid[8];       // 8 байт от ID report клиента
+  uint8_t pd_client_uid[8];       // 8   ID report 
   uint8_t scbk[16];               // Secure Channel Base Key
-  uint8_t s_enc[16];              // Сессионный ключ шифрования
-  uint8_t s_mac1[16];             // Сессионный ключ номер 1 аутентификации сообщений
-  uint8_t s_mac2[16];             // Сессионный ключ номер 2 аутентификации сообщений
-  uint8_t r_mac[16];              // Replay MAC (пакеты от PD к CP)
-  uint8_t c_mac[16];              // Command MAC (пакеты от CP к PD)
-  uint8_t cp_random[8];           // Случайное число от CP (RND.A)
-  uint8_t pd_random[8];           // Случайное число от PD (RND.B)
-  uint8_t cp_cryptogram[16];      // Криптограмма сервера (CP)
-  uint8_t pd_cryptogram[16];      // Криптограмма клиента (PD)
+  uint8_t s_enc[16];              //   
+  uint8_t s_mac1[16];             //    1  
+  uint8_t s_mac2[16];             //    2  
+  uint8_t r_mac[16];              // Replay MAC (  PD  CP)
+  uint8_t c_mac[16];              // Command MAC (  CP  PD)
+  uint8_t cp_random[8];           //    CP (RND.A)
+  uint8_t pd_random[8];           //    PD (RND.B)
+  uint8_t cp_cryptogram[16];      //   (CP)
+  uint8_t pd_cryptogram[16];      //   (PD)
 } osdp_secure_channel_t;
 osdp_secure_channel_t SC;
 // Variable for temporary storage iv, MAC, e.t.c.
@@ -67,7 +67,7 @@ const uint8_t SCS_18 = 0x18; // PD->CP
 const int AES_BLOCK_LEN = 16;
 const int AES_MAX_BLOCKS = 90;
 
-// Случайное число PD
+//   PD
 static const uint8_t RND_B[8] = {0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7};
 // Debug version of Secutity Channel Base Key
 static uint8_t SCBK_D[16] = {0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F};
@@ -86,7 +86,7 @@ static void encrypt_block(const uint8_t* key, const uint8_t* block, uint8_t* res
 {
 aes_context ctx;
 
-  aes_setkey_enc(&ctx, key, 128);       // Длина ключа в битах!
+  aes_setkey_enc(&ctx, key, 128);       //    !
   aes_crypt_ecb(&ctx, AES_ENCRYPT, block, (unsigned char*)result);
 }
 
@@ -103,7 +103,7 @@ aes_context ctx;
   aes_crypt_ecb(&ctx, AES_ENCRYPT, RND, (unsigned char*)result);
 }
 
-// генерация ключа, используя RNDA
+//  ,  RNDA
 void calculate_enc(const uint8_t* key, const uint8_t* RNDA, uint8_t* result)
 {
 uint8_t input[16];
@@ -121,7 +121,7 @@ uint8_t input[16];
   encrypt_block(key, input, result);
 }
 
-// генерация SMAC1, используя RNDA
+//  SMAC1,  RNDA
 void calculate_smac1(const uint8_t* key, const uint8_t* RNDA, uint8_t* result)
 {
 uint8_t input[16];
@@ -139,7 +139,7 @@ uint8_t input[16];
   encrypt_block(key, input, result);
 }
 
-// генерация SMAC2, используя RNDA
+//  SMAC2,  RNDA
 void calculate_smac2(const uint8_t* key, const uint8_t* RNDA, uint8_t* result)
 {
 uint8_t input[ 16];
@@ -157,7 +157,7 @@ uint8_t input[ 16];
   encrypt_block(key, input, result);
 }
 
-// сторона клиента PD
+//   PD
 void client_calculate_aes_rmaci(const uint8_t* cryptogram, const uint8_t* S_MAC1, const uint8_t* S_MAC2, uint8_t* result)
 {
 aes_context ctx;
@@ -179,7 +179,7 @@ aes_context ctx;
   aes_crypt_ecb(&ctx, AES_ENCRYPT, (unsigned char*)result, (unsigned char*)result);
 }
 
-// Вычисление дополнения (получение инверсного МАС)
+//   (  )
 void calculate_one_complement(const uint8_t* source, uint8_t* destination)
 {
   uint32_t* s = (uint32_t*)source;
@@ -200,69 +200,69 @@ void calculate_one_complement(const uint8_t* source, uint8_t* destination)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Основной рабочий механизм шифрования данных
+//     
 void osdp_encrypt_aes(uint8_t *enc_key, uint8_t* ICV, uint8_t* data, 
                       uint16_t data_len, uint8_t* result)
 {
 aes_context ctx_skey_enc;
   
-  // Инициализируем контекст
+  //  
   aes_setkey_enc(&ctx_skey_enc, enc_key, 128);
   aes_crypt_cbc(&ctx_skey_enc, AES_ENCRYPT, data_len, ICV, data, result);
 }
 
-// основной рабочий механизм дешифрования
+//    
 void osdp_decrypt_aes(uint8_t *dec_key, uint8_t* ICV, uint8_t* data, 
                       uint16_t data_len, uint8_t* result)
 {
 aes_context ctx_skey_dec;
   
-  // Инициализируем контекст
+  //  
   aes_setkey_dec(&ctx_skey_dec, dec_key, 128);
   aes_crypt_cbc(&ctx_skey_dec, AES_DECRYPT, data_len, ICV, data, result);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-//     Формирование МАС для полного сообщения OSDP (предваритель padded !!!)
+//          OSDP ( padded !!!)
 ////////////////////////////////////////////////////////////////////////////////
 void osdp_calculate_mac(uint8_t *key_mac1, uint8_t *key_mac2, uint16_t length,
         uint8_t* icv, const uint8_t* input, uint8_t* output)
 {
-//предыдущий обработанный блок
+//  
 uint8_t iv[16];
 uint8_t curr[16];
 int i;
 aes_context ctx_mac1, ctx_mac2;
 
-    // прихраниваем IV
+    //  IV
     memcpy(iv, icv, 16);
-    // Инициализируем контексты
+    //  
     aes_setkey_enc(&ctx_mac1, key_mac1, 128);
     aes_setkey_enc(&ctx_mac2, key_mac2, 128);
 
-    // шифровка, все блоки, кроме последнего шифруются первым ключём.
-    // последний шифруется вторым ключом
+    // ,  ,     .
+    //    
     while (length > 16) {
         //printf("aes block to sign:\n");
         //hex_print(input, 16);
-        // подмешивается IV
+        //  IV
         for (i = 0; i < 16; i++)
             curr[i] = (unsigned char)(input[i] ^ iv[i]);
-        // Криптуем
+        // 
         aes_crypt_ecb(&ctx_mac1, AES_ENCRYPT, curr, curr);
-        // обновляем IV
+        //  IV
         memcpy(iv, curr, 16);
         input += 16;
         length -= 16;
     }
 
-    // последний блок шифруем вторым ключом,  подмешивается IV
+    //     ,   IV
     for (i = 0; i < 16; i++)
         curr[i] = (unsigned char)(input[i] ^ iv[i]);
-    // Криптуем последний блок
+    //   
     aes_crypt_ecb(&ctx_mac2, AES_ENCRYPT, curr, curr);
 
-    //  curr теперь содержит MAC сообщения
+    //  curr   MAC 
     memcpy(output, curr, 16);
 }
 
@@ -285,7 +285,7 @@ tOsdpSecurPacket* pkt;
 }
 
 /*************************************************************************** 
- *                ФУНКЦИИ МОДУЛЯ ОБЩЕГО НАЗНАЧЕНИЯ
+ *                   
  ***************************************************************************/
 
 void SecureChannelInit(uint8_t *scbk)
@@ -351,10 +351,10 @@ void RemoveDataPadding(pOsdpSecurPacket msg)
 ////////////////////////////////////////////////////////////////////////////////
 void ConvertCommandToPlain(pOsdpSecurPacket msg)
 {
-  // Перемещаем байты после криптозаголовка на новые позиции, 
+  //       , 
   memmove(&msg->RawData[5],
           &msg->OsdpData.CmdReplay, 1);   // Pure command without data !!!
-  // Длину сообщения корректируем
+  //   
   msg->OsdpData.DLen -= 3;
   // CTRL byte - reset crypto flag for standard processing
   msg->OsdpData.Ctrl &= ~0x08;
@@ -371,38 +371,38 @@ uint16_t move_len;
 uint8_t iv[16];
 uint8_t i;
   
-  // Дешифруем поле данных
+  //   
   memcpy(iv, SC.c_mac, sizeof(iv));                 /////////// c_mac?
   for (i = 0; i < 16; i++) {
     iv[i] = ~iv[i];
   }
-  // Длина поля данных для дешифрации
+  //     
   move_len = msg->OsdpData.DLen - 9;
   osdp_decrypt_aes(SC.s_enc, iv, msg->OsdpData.Data, move_len, msg->OsdpData.Data);
-  // Удаляем из них padding
+  //    padding
   RemoveDataPadding(msg);
-  // Длина перемещаемой части пакета
+  //    
   move_len = msg->OsdpData.DLen - 8;
-  // Перемещаем байты после криптозаголовка на новые позиции, 
+  //       , 
   memmove(&msg->RawData[5],
           &msg->OsdpData.CmdReplay, move_len);
-  // Длину сообщения корректируем  на удаляемые SCS
+  //       SCS
   msg->OsdpData.DLen -= 3;
   // CTRL byte - reset crypto flag for standard processing
   msg->OsdpData.Ctrl &= ~0x08;
-  // Финальная длина пакета (без CRC)
+  //    ( CRC)
   msg->OsdpData.DLen += 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Function     :  PadBlock
-// Input        :  Начало блока, исходная длина в блоке
-// Output       :  padded - сколько добавлено байт
-// Description  :  Дополняет блок данных до кратности 16 (для шифрования)
+// Input        :   ,    
+// Output       :  padded -   
+// Description  :       16 ( )
 ////////////////////////////////////////////////////////////////////////////////
 void PadBlock(uint8_t *block_ptr, uint16_t src_len, uint16_t *padded)
 {
-  // Сначала ставим маркер 0х80
+  //    080
   block_ptr[src_len++] = 0x80;
   *padded += 1;
   while ((src_len % 16) != 0) {
@@ -414,45 +414,45 @@ void PadBlock(uint8_t *block_ptr, uint16_t src_len, uint16_t *padded)
 ////////////////////////////////////////////////////////////////////////////////
 // Function     :  EncodeAnswerPacket
 // Input        :  RAW OSDP packet
-// Output       :  Нет
+// Output       :  
 // Description  :  Convert plain packet to secured one
 ////////////////////////////////////////////////////////////////////////////////
 void EncodeAnswerPacket(uint8_t *msg)
 {
 tOsdpPacket* pkt_p;        // Plain version of packet
 tOsdpSecurPacket* pkt_s;   // Secured version of packet
-uint16_t lendata, pad_len;           // Есть ли данные?
+uint16_t lendata, pad_len;           //   ?
 uint8_t iv[16];
 uint8_t i;
   
-  // Две версии трактовки пакета
+  //    
   pkt_p = (tOsdpPacket*)msg;
   pkt_s = (tOsdpSecurPacket*)msg;
-  // На входе получили длину (с данными и CRC)
-  // Сначала раздвигаем пакет и вставляем 3 байта SCS
+  //     (   CRC)
+  //      3  SCS
   memmove(&pkt_s->OsdpData.CmdReplay, &pkt_p->OsdpData.CmdReplay, 
           pkt_p->OsdpData.DLen - 4);
-  // Получаем длину блока данных (до вставки SCS)
+  //     (  SCS)
   lendata = pkt_p->OsdpData.DLen - 8;
-  // Вставляем байты SecBlk
+  //   SecBlk
   pkt_s->OsdpData.SecBlkData = 1;
-  // В CTRL ставим флаг секьюрити
+  //  CTRL   
   pkt_s->OsdpData.Ctrl |= 0x08;
   pkt_s->OsdpData.SecBlkLen = 3;
-  // Корректируем общую длину на величину вставки
+  //      
   pkt_s->OsdpData.DLen += 3;
   if (lendata > 0) {
     pkt_s->OsdpData.SecBlkType = SCS_18;
-    // Если надо - криптуем данные с падингом
+    //   -    
     if ((lendata % 16) != 0) {
-      // Дополняем до кратности 16 байтам
+      //    16 
       pad_len = 0;
       PadBlock(pkt_s->OsdpData.Data, lendata, &pad_len);
       pkt_s->OsdpData.DLen += pad_len; 
-      // Теперь криптуем данные. Длина данных
+      //   .  
       lendata += pad_len;
-      // Криптуем с ключом SC.s_enc и IV = inverted c_mac. 
-      // Пробуем источник и результат использовать один
+      //    SC.s_enc  IV = inverted c_mac. 
+      //      
       memcpy(iv, SC.c_mac, sizeof(iv));
       for (i = 0; i < 15; i++) {
         iv[i] = ~iv[i];
@@ -462,33 +462,33 @@ uint8_t i;
     }
   }
   else {
-    // Данных нет - ставим SCS_16
+    //   -  SCS_16
     pkt_s->OsdpData.SecBlkType = SCS_16;
   }
-  // Теперь добавляем MAC с падингом
+  //   MAC  
   pad_len = 0;
   PadBlock(pkt_s->RawData, pkt_s->OsdpData.DLen - 2, &pad_len);
   pkt_s->OsdpData.DLen += pad_len;
-  // Сразу добавляем длину МАС для его корректного вычисления
+  //        
   pkt_s->OsdpData.DLen += 4;
-  // Вычисляем МАС на базе c_mac от последней команды без инверсии
+  //     c_mac     
   memcpy(iv, SC.c_mac, sizeof(iv));
   osdp_calculate_mac(SC.s_mac1, SC.s_mac2,          // Two keys for MAC calculation
                     pkt_s->OsdpData.DLen - 6,       // Data length without CRC and MAC
                     iv,                             // IV for calculation
                     pkt_s->RawData,                 // Pointer to SOM
                     temp_data);                     // Result of calculation
-  // Сохраняем полученный МАС как отправленный
+  //     
   memcpy(SC.r_mac, temp_data, sizeof(SC.r_mac));
-  // Добавляем МАС перед CRC
+  //    CRC
   memcpy(&pkt_s->RawData[pkt_s->OsdpData.DLen - 6], temp_data, 4);
-  // ... CRC будет добавлена при отправке в UartSend(), длина уже учтена
+  // ... CRC      UartSend(),   
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Function     :  DecodeSecuredCommad
 // Input        :  RAW OSDP packet
-// Output       :  Нет
+// Output       :  
 // Description  :  
 ////////////////////////////////////////////////////////////////////////////////
 void DecodeSecuredCommand(uint8_t *msg)
@@ -616,15 +616,15 @@ uint8_t cmd;
             ConvertCommandToPlain(pkt_s);
             // Now we can store c_mac for next exchange
             memcpy(SC.c_mac, temp_c_mac, sizeof(SC.c_mac));
-            // Здесь длина данных БЕЗ CRC
+            //     CRC
             dlen = OsdpMessage.OsdpPacket.OsdpData.DLen;
             // Store command code
             cmd = OsdpMessage.OsdpPacket.OsdpData.CmdReplay;
-            // Это пока что для пустого пакета c CRC
+            //       c CRC
             OsdpMessage.OsdpPacket.OsdpData.DLen = 8;
-            // Пока что ASK
+            //   ASK
             OsdpMessage.OsdpPacket.OsdpData.CmdReplay = osdp_ACK;
-            // Для ответа к адресу добавили 0x80
+            //      0x80
             OsdpMessage.OsdpPacket.OsdpData.Addr |= 0x80;
             // Below in DecodePlainCommad we store new params for osdp_COMSET (ver. 4.4)
             // NewCommSpeed, NewDevAddress. It will reset after store in ReaderConfig
@@ -645,15 +645,15 @@ uint8_t cmd;
             // After conversion prepare ASK answer
             // Now we can store c_mac for next exchange
             memcpy(SC.c_mac, temp_c_mac, sizeof(SC.c_mac));
-            // Здесь длина данных БЕЗ CRC
+            //     CRC
             dlen = OsdpMessage.OsdpPacket.OsdpData.DLen;
             // Store command code
             cmd = OsdpMessage.OsdpPacket.OsdpData.CmdReplay;
-            // Это пока что для пустого пакета c CRC
+            //       c CRC
             OsdpMessage.OsdpPacket.OsdpData.DLen = 8;
-            // Пока что ASK
+            //   ASK
             OsdpMessage.OsdpPacket.OsdpData.CmdReplay = osdp_ACK;
-            // Для ответа к адресу добавили 0x80
+            //      0x80
             OsdpMessage.OsdpPacket.OsdpData.Addr |= 0x80;
             if (cmd == osdp_MFG) {
               // Manufacturer command, optional with data

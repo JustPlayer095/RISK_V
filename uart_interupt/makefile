@@ -30,6 +30,7 @@ OBJS += $(ASMS:.S=.o)
 	
 INCLUDE_FOLDERS = $(foreach inc, $(sort $(dir $(HEADERS))), -I"$(inc)") -I"./device/Include" -I"./plib/inc"
 OBJ_DIRS = $(sort $(dir $(OBJS)))
+OBJ_DIRS := $(patsubst ./%,%,$(OBJ_DIRS))
 	
 LIBS ?= -L$(LINKER_PATH)
 LIBS_ACR ?= -lc_nano -lg_nano -lgcc
