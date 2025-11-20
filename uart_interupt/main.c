@@ -11,21 +11,14 @@
 #include "osdp/osdp_min.h"
 
 //-- Defines -------------------------------------------------------------------
-#define UART1_BAUD  9600
+#define UART1_BAUD  115200
 
-#define UBUFF_SIZE 128
-
-// Буфер и флаги для приёма через прерывания
-static volatile char rx_line_buf[UBUFF_SIZE];
-static volatile uint32_t rx_idx = 0;
-static volatile uint8_t rx_line_ready = 0;
 static uint8_t prev_btn_state = 1; // с PU отпущенная кнопка = 1
 static volatile uint8_t led_state = 0; // состояние светодиода (0=выкл,1=вкл)
 static uint8_t pressed_lock = 0; // блок повторного срабатывания, пока кнопка не отпущена стабильно
 static void uart1_irq_handler(void);
 static void uart_irq_init(void);
 static void gpio_init(void);
-static void delay_debounce(void);
 static void tmr32_init(void);
 static void tmr32_irq_handler(void);
  
@@ -159,7 +152,7 @@ static void gpio_init(void)
 // Таймер 1 мс на TMR32: 
 static volatile uint32_t ms_ticks = 0;
 
-static void tmr32_init(void)
+static void tmr32_init(void) 
 {
   // Тактирование TMR32
   RCU->CGCFGAPB_bit.TMR32EN = 1;
@@ -187,6 +180,8 @@ static void tmr32_irq_handler(void)
 {
   // Инкремент тиков, сброс флага
   ms_ticks++;
+  // 1 мс тик для OSDP (временное управление LED)
+  osdp_tick_1ms();
   TMR32_ITClear(TMR32_IT_TimerUpdate);
 }
 
@@ -200,35 +195,11 @@ int main(void)
   while(1)
   {
 
-    if (rx_line_ready) {
-      // Нулевая терминация для разбора команды
-      if (rx_idx < UBUFF_SIZE) {
-        rx_line_buf[rx_idx] = '\0';
-      } else {
-        rx_line_buf[UBUFF_SIZE - 1] = '\0';
-      }
-
-      // Команды: clear — очистить экран терминала (ANSI)
-      if (strcmp((const char*)rx_line_buf, "clear") == 0) {
-        printf("\x1B[2J\x1B[H"); // \x1B[2J - очищаем терминал, \x1B[H - возвращаем курсор в начало терминала
-      } else {
-        // Поведение по умолчанию: эхо
-        for (uint32_t i = 0; i < rx_idx; i++) {
-          retarget_put_char(rx_line_buf[i]);
-        }
-        retarget_put_char('\r');
-        retarget_put_char('\n');
-      }
-
-      rx_idx = 0;
-      rx_line_ready = 0;
-    }
-
     // Фиксация: переключаем состояние LED по каждому нажатию (сигнал 1->0)
     uint8_t btn_now = GPIO_ReadBit(GPIOA, GPIO_Pin_1) ? 1 : 0;
     // Неблокирующий антидребезг на 1 мс тикере
     static uint32_t last_event_ms = 0;
-    const uint32_t debounce_ms = 30;
+    const uint32_t debounce_ms = 100;
 
     if (!pressed_lock) {
       if (prev_btn_state == 1 && btn_now == 0) {
@@ -242,7 +213,7 @@ int main(void)
             GPIO_ClearBits(GPIOA, GPIO_Pin_0);
             printf("LED OFF\r\n");
           }
-          pressed_lock = 1;
+          pressed_lock = 1; // гарантирует всего одно выполнение
           last_event_ms = now;
         }
       }
@@ -260,11 +231,4 @@ int main(void)
   }
 
   return 0;
-}
-
-// Короткая задержка для подавления дребезга
-static void delay_debounce(void) {
-  for (volatile uint32_t i = 0; i < 50000; i++) {
-    __asm volatile("nop");
-  }
 }
