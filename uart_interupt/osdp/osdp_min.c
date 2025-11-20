@@ -4,8 +4,10 @@
 #include "ccitt_crc16.h"
 #include "../device/Include/K1921VG015.h"
 #include "../device/Include/retarget.h"
+#include "../plib/inc/plib015_gpio.h"
 
 #define OSDP_SOM 0x53
+#define OSDP_HEADER_LEN 8
 
 static uint8_t g_addr = 0x01;
 
@@ -13,7 +15,7 @@ typedef enum {
 	st_wait_som = 0,
 	st_wait_addr,
 	st_wait_len_l,
-	st_wait_len_h,
+	st_wait_len_m,
 	st_receive_bytes
 } rx_state_t;
 
@@ -31,59 +33,356 @@ static void osdp_send_blocking(const uint8_t *data, uint16_t len)
 	while (!RETARGET_UART->FR_bit.TXFE) { }
 }
 
+// Вспомогательная функция для записи заголовка ответа.
+static uint16_t osdp_build_header(uint8_t *tx, uint16_t dlen, uint8_t seq)
+{
+	uint16_t i = 0;
+	tx[i++] = OSDP_SOM;
+	tx[i++] = (uint8_t)(g_addr | 0x80);
+	tx[i++] = (uint8_t)(dlen & 0xFF);
+	tx[i++] = (uint8_t)((dlen >> 8) & 0xFF);
+	tx[i++] = (uint8_t)((seq & 0x03) | 0x04);
+	return i;
+}
+
+// Универсальное завершение кадра: добавить CRC и отправить
+static void osdp_build_crc_and_send(uint8_t *tx, uint16_t dlen)
+{
+	uint16_t crc = ccitt_crc16_calc(OSDP_INIT_CRC16, tx, dlen);
+	tx[dlen++] = (uint8_t)(crc & 0xFF);
+	tx[dlen++] = (uint8_t)((crc >> 8) & 0xFF);
+	osdp_send_blocking(tx, dlen);
+}
+
 static void osdp_build_and_send_ack(uint8_t seq)
 {
 	uint8_t tx[16];
-	uint16_t dlen = 8; // header(5) + reply(1) + crc(2)
-	uint16_t crc;
+	uint16_t dlen = OSDP_HEADER_LEN; // заголовок(5) + ответ(1) + crc(2)
 	uint16_t i = 0;
-	// SOM
-	tx[i++] = OSDP_SOM;
-	// ADDR (MSB=1 для ответа)
-	tx[i++] = (uint8_t)(g_addr | 0x80);
-	// LEN LSB/MSB
-	tx[i++] = (uint8_t)(dlen & 0xFF);
-	tx[i++] = (uint8_t)((dlen >> 8) & 0xFF);
-	// CTRL: тот же seq, CRC-бит установлен
-	tx[i++] = (uint8_t)((seq & 0x03) | 0x04);
-	// REPLY
+	// Заголовок
+	i = osdp_build_header(tx, dlen, seq);
+	// Ответ
 	tx[i++] = osdp_ACK;
-	// CRC16
-	crc = ccitt_crc16_calc(OSDP_INIT_CRC16, tx, (uint16_t)(i));
-	tx[i++] = (uint8_t)(crc & 0xFF);
-	tx[i++] = (uint8_t)((crc >> 8) & 0xFF);
-	osdp_send_blocking(tx, (uint16_t)i);
+	// CRC + отправка
+	osdp_build_crc_and_send(tx, i);
+}
+
+static void osdp_build_and_send_nak(uint8_t seq, uint8_t reason)
+{
+	uint8_t tx[16];
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + 1); // +1 байт причины
+	uint16_t i = 0;
+	i = osdp_build_header(tx, dlen, seq);
+	tx[i++] = osdp_NAK;
+	tx[i++] = reason; // причина NAK
+	osdp_build_crc_and_send(tx, i);
 }
 
 static void osdp_build_and_send_pdid(uint8_t seq)
 {
 	uint8_t tx[64];
 	uint16_t i = 0;
-	uint8_t pdid[14] = {
-		'R','V','G', // условный вендор
-		1,           // модель
-		1,           // версия
-		0x12,0x34,0x56,0x78, // серийный
-		1,0,0       // FW: 1.0.0
+	uint8_t pdid[12] = {
+		'A','B','C',             // условный вендор
+		1,                       // модель
+		1,                       // версия
+		0x11,0x11,0x11,0x11,     // серийный
+		1,1,1                    // 1.0.0
 	};
-	uint16_t dlen = (uint16_t)(8 + sizeof(pdid));
-	uint16_t crc;
-	// Header
-	tx[i++] = OSDP_SOM;
-	tx[i++] = (uint8_t)(g_addr | 0x80);
-	tx[i++] = (uint8_t)(dlen & 0xFF);
-	tx[i++] = (uint8_t)((dlen >> 8) & 0xFF);
-	tx[i++] = (uint8_t)((seq & 0x03) | 0x04);
-	// Reply code
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(pdid));
+	i = osdp_build_header(tx, dlen, seq);
 	tx[i++] = osdp_PDID;
-	// Data
-	memcpy(&tx[i], pdid, sizeof(pdid));
+	memcpy(&tx[i], pdid, sizeof(pdid));             // копируем данные в буфер начиная с позиции i, т.е. после заголовка и ctrl
 	i += (uint16_t)sizeof(pdid);
-	// CRC
-	crc = ccitt_crc16_calc(OSDP_INIT_CRC16, tx, i);
-	tx[i++] = (uint8_t)(crc & 0xFF);
-	tx[i++] = (uint8_t)((crc >> 8) & 0xFF);
-	osdp_send_blocking(tx, i);
+	osdp_build_crc_and_send(tx, i);
+}
+
+static void osdp_build_and_send_pdcap(uint8_t seq)
+{
+	uint8_t tx[64];
+	uint16_t i = 0;
+	// [Function][Compliance/LSB][NumberOf/MSB] согласно IEC 60839-11-5 (Annex B)
+	// Включены коды 0x01..0x10; неподдерживаемые помечены CL=0 и Number=0.
+	uint8_t caps[] = {
+		0x01, 0x01, 0x01, // 1  Inputs: CL=01, Number=1
+		0x02, 0x01, 0x01, // 2  Outputs: CL=01, Number=1
+		0x03, 0x00, 0x00, // 3  Card data format: not supported
+		0x04, 0x01, 0x01, // 4  Reader LED control: CL=01, Number=1
+		0x05, 0x00, 0x00, // 5  Reader audible output: not supported
+		0x06, 0x00, 0x00, // 6  Reader text output: not supported
+		0x07, 0x00, 0x00, // 7  Time keeping: not supported
+		0x08, 0x01, 0x00, // 8  Check character support: CRC-16
+		0x09, 0x00, 0x00, // 9  Communication security: not supported
+		0x0A, 0x40, 0x00, // 10 Receive buffer size: 0x0040 (64)
+		0x0B, 0x40, 0x00, // 11 Largest combined message size: 0x0040 (64)
+		0x0C, 0x00, 0x00, // 12 Smart card support: not supported
+		0x0D, 0x00, 0x00, // 13 Readers: none
+		0x0E, 0x00, 0x00, // 14 Biometrics: none
+		0x0F, 0x00, 0x00, // 15 Secure PIN entry: not supported
+		0x10, 0x01, 0x00  // 16 OSDP version: IEC 60839-11-5
+	};
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(caps));
+	i = osdp_build_header(tx, dlen, seq);
+	tx[i++] = osdp_PDCAP;
+	memcpy(&tx[i], caps, sizeof(caps));
+	i += (uint16_t)sizeof(caps);
+	osdp_build_crc_and_send(tx, i);
+}
+
+static void osdp_build_and_send_com(uint8_t seq, uint8_t new_addr, uint32_t new_baud)
+{
+	uint8_t tx[16];
+	uint16_t i = 0;
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + 5); 
+	i = osdp_build_header(tx, dlen, seq);
+	tx[i++] = osdp_COM;
+	tx[i++] = (uint8_t)(new_addr & 0x7F);
+	tx[i++] = (uint8_t)(new_baud & 0xFF);
+	tx[i++] = (uint8_t)((new_baud >> 8) & 0xFF);
+	tx[i++] = (uint8_t)((new_baud >> 16) & 0xFF);
+	tx[i++] = (uint8_t)((new_baud >> 24) & 0xFF);
+	osdp_build_crc_and_send(tx, i);
+}
+
+static void set_led_state(uint8_t on)
+{
+	// LED на PA0 уже сконфигурирован в main.c
+	if (on) {
+		GPIO_SetBits(GPIOA, GPIO_Pin_0);
+	} else {
+		GPIO_ClearBits(GPIOA, GPIO_Pin_0);
+	}
+}
+
+static void osdp_build_and_send_istat(uint8_t seq)
+{
+	uint8_t tx[16];
+	uint16_t i = 0;
+	// Дополнительных данных 1 байт: бит0 = состояние входа 0 (кнопка на PA1, 1=активно)
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + 1);
+	i = osdp_build_header(tx, dlen, seq);
+	tx[i++] = osdp_ISTATR;
+	uint8_t inputs = 0;
+	// Кнопка с PU активна уровнем 0 → инвертируем, чтобы 1 означало "замкнуто/нажато"
+	inputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_1) ? 0u : 1u) << 0;
+	tx[i++] = inputs;
+	osdp_build_crc_and_send(tx, i);
+}
+
+static void osdp_build_and_send_ostat(uint8_t seq)
+{
+	uint8_t tx[16];
+	uint16_t i = 0;
+	// Дополнительных данных 1 байт: бит0 = состояние выхода 0 (LED на PA0, 1=включен)
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + 1);
+	i = osdp_build_header(tx, dlen, seq);
+	tx[i++] = osdp_OSTATR;
+	uint8_t outputs = 0;
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_0) ? 1u : 0u) << 0;
+	tx[i++] = outputs;
+	osdp_build_crc_and_send(tx, i);
+}
+
+static void set_uart_baud(uint32_t baud)
+{
+	// Настроить делители UART1 по формуле из UART1_init()
+	// Предполагаем источник тактирования HSE, как в init
+	uint32_t baud_icoef = HSECLK_VAL / (16u * baud);
+	float    f = (float)HSECLK_VAL / (16.0f * (float)baud) - (float)baud_icoef;
+	uint32_t baud_fcoef = (uint32_t)(f * 64.0f + 0.5f);
+	uint32_t cr_saved   = UART1->CR;
+	uint32_t lcrh_saved = UART1->LCRH;
+	uint32_t imsc_saved = UART1->IMSC;
+	// Дождаться окончания текущей передачи/приёма, чтобы не обрывать ответ
+	while (UART1->FR_bit.BUSY) { }
+	// Остановить UART
+	UART1->CR = 0;
+	UART1->IBRD = baud_icoef;
+	UART1->FBRD = baud_fcoef;
+	// Перезаписать формат кадра и включить FIFO как в init (8N1, FIFO EN)
+	UART1->LCRH = UART_LCRH_FEN_Msk | (3u << UART_LCRH_WLEN_Pos);
+	// Очистить все флаги прерываний
+	UART1->ICR = 0x7FF;
+	while (!UART1->FR_bit.RXFE) { (void)UART1->DR_bit.DATA; }
+	// Восстановить маску прерываний (на случай, если аппаратно сбросилась)
+	UART1->IMSC = imsc_saved;
+	// Включить обратно (TX, RX, UARTEN)
+	UART1->CR = cr_saved | UART_CR_TXE_Msk | UART_CR_RXE_Msk | UART_CR_UARTEN_Msk;
+}
+
+typedef struct {
+	uint8_t  temp_active;
+	uint8_t  perm_state;      // 0=off, 1=on
+	uint8_t  current_state;   // 0=off, 1=on
+	uint32_t on_ms;
+	uint32_t off_ms;
+	uint16_t cycles_left;     // 0 = постоянно
+	uint32_t phase_ms_left;
+	// Permanent blink profile (по стандарту – постоянные времена и цвета; тут цвета игнорируем, у нас всего 1 доступный)
+	uint32_t perm_on_ms;
+	uint32_t perm_off_ms;
+	// Отображение "цвета" в реальное состояние GPIO: 0=black(off), !=0 = on
+	uint8_t  temp_on_color_is_on;
+	uint8_t  temp_off_color_is_on;
+	uint8_t  perm_on_color_is_on;
+	uint8_t  perm_off_color_is_on;
+} led_ctrl_t;
+
+static led_ctrl_t led_ctrl;
+
+void osdp_tick_1ms(void)
+{
+	if (led_ctrl.phase_ms_left > 0) {
+		--led_ctrl.phase_ms_left;
+		return;
+	}
+
+	if (led_ctrl.temp_active) {
+		// Управление temp профилем
+		if (led_ctrl.current_state) {
+			// ON -> OFF
+			led_ctrl.current_state = 0;
+			set_led_state(led_ctrl.temp_off_color_is_on ? 1 : 0);
+			led_ctrl.phase_ms_left = (led_ctrl.off_ms > 0) ? led_ctrl.off_ms : 0;
+		} else {
+			// OFF -> ON
+			led_ctrl.current_state = 1;
+			set_led_state(led_ctrl.temp_on_color_is_on ? 1 : 0);
+			led_ctrl.phase_ms_left = (led_ctrl.on_ms > 0) ? led_ctrl.on_ms : 0;
+			// Считаем циклы по фронту включения
+			if (led_ctrl.cycles_left > 0) {
+				--led_ctrl.cycles_left;
+				if (led_ctrl.cycles_left == 0) {
+					// Конец временного режима – восстановить постоянный
+					led_ctrl.temp_active = 0;
+					// Запустить постоянный профиль: либо мигание, либо статика
+					if (led_ctrl.perm_on_ms > 0 && led_ctrl.perm_off_ms > 0) {
+						led_ctrl.current_state = 1;
+						set_led_state(led_ctrl.perm_on_color_is_on ? 1 : 0);
+						led_ctrl.phase_ms_left = led_ctrl.perm_on_ms;
+					} else {
+						set_led_state(led_ctrl.perm_state);
+						led_ctrl.phase_ms_left = 0;
+					}
+				}
+			}
+		}
+	} else {
+		// Постоянный профиль: мигание, если задано perm_on/off
+		if (led_ctrl.perm_on_ms > 0 && led_ctrl.perm_off_ms > 0) {
+			if (led_ctrl.current_state) {
+				led_ctrl.current_state = 0;
+				set_led_state(led_ctrl.perm_off_color_is_on ? 1 : 0);
+				led_ctrl.phase_ms_left = led_ctrl.perm_off_ms;
+			} else {
+				led_ctrl.current_state = 1;
+				set_led_state(led_ctrl.perm_on_color_is_on ? 1 : 0);
+				led_ctrl.phase_ms_left = led_ctrl.perm_on_ms;
+			}
+		}
+	}
+}
+
+static void handle_osdp_led(uint8_t *data, uint16_t data_len)
+{
+	// Стандартный формат: 14 байт на одну запись (Temporary+Permanent)
+	// Temporary: code, on, off, on_color, off_color, timerLSB, timerMSB
+	// Permanent: code, on, off, on_color, off_color
+	if (data_len < 14) return;
+	uint16_t count = (uint16_t)(data_len / 14u);
+	for (uint16_t rec = 0; rec < count; rec++) {
+		uint8_t *p = &data[rec * 14u];
+		uint8_t reader = p[0];
+		uint8_t lednum  = p[1];
+		if (!(reader == 0 && lednum == 0)) continue; // у нас один LED: reader0, led0
+
+		uint8_t tcode  = p[2];
+		uint8_t tOn100ms = p[3];
+		uint8_t tOff100ms = p[4];
+		uint8_t tOnColor  = p[5];
+		uint8_t tOffColor = p[6];
+		uint16_t timer100ms = (uint16_t)p[7] | ((uint16_t)p[8] << 8);
+
+		uint8_t pcode  = p[9];
+		uint8_t pOn100ms = p[10];
+		uint8_t pOff100ms= p[11];
+		uint8_t pOnColor  = p[12];
+		uint8_t pOffColor = p[13];
+
+		// Обновим постоянный профиль, если требуется
+		if (pcode == 0x01) {
+			uint32_t pon_ms  = (uint32_t)pOn100ms  * 100u;
+			uint32_t poff_ms = (uint32_t)pOff100ms * 100u;
+			led_ctrl.perm_on_ms  = pon_ms;
+			led_ctrl.perm_off_ms = poff_ms;
+			led_ctrl.perm_on_color_is_on  = (pOnColor  != 0);
+			led_ctrl.perm_off_color_is_on = (pOffColor != 0);
+			if (pon_ms > 0 && poff_ms == 0) {
+				led_ctrl.perm_state = (pOnColor != 0) ? 1 : 0; // цветом управляем "включённостью"
+			} else if (pon_ms == 0 && poff_ms > 0) {
+				led_ctrl.perm_state = (pOffColor != 0) ? 1 : 0;
+			}
+			// Если temp режима нет – применим сразу
+			if (!led_ctrl.temp_active) {
+				if (pon_ms > 0 && poff_ms > 0) {
+					led_ctrl.current_state = 1;
+					set_led_state(led_ctrl.perm_on_color_is_on ? 1 : 0);
+					led_ctrl.phase_ms_left = pon_ms;
+				} else {
+					set_led_state(led_ctrl.perm_state);
+				}
+			}
+		} else if (pcode == 0x00) {
+			// Not use: NOP по стандарту — не изменяем постоянные настройки
+		}
+
+		// Temporary в соответствии со стандартом
+		if (tcode == 0x00) {
+			// NOP – не изменяем текущий временный режим
+		} else if (tcode == 0x01) {
+			// выключить temp и показать permanent немедленно
+			led_ctrl.temp_active = 0;
+			if (led_ctrl.perm_on_ms > 0 && led_ctrl.perm_off_ms > 0) {
+				led_ctrl.current_state = 1;
+				set_led_state(led_ctrl.perm_on_color_is_on ? 1 : 0);
+				led_ctrl.phase_ms_left = led_ctrl.perm_on_ms;
+			} else {
+				led_ctrl.current_state = led_ctrl.perm_state;
+				set_led_state(led_ctrl.perm_state);
+				led_ctrl.phase_ms_left = 0;
+			}
+		} else if (tcode == 0x02) {
+			// Установить временный режим немедленно и запустить таймер
+			uint32_t on_ms  = (uint32_t)tOn100ms  * 100u;
+			uint32_t off_ms = (uint32_t)tOff100ms  * 100u;
+			led_ctrl.on_ms  = (on_ms  > 0) ? on_ms  : 0;
+			led_ctrl.off_ms = (off_ms > 0) ? off_ms : 0;
+			led_ctrl.temp_on_color_is_on  = (tOnColor  != 0);
+			led_ctrl.temp_off_color_is_on = (tOffColor != 0);
+			// Рассчитать количество циклов из таймера, если задан
+			if (timer100ms == 0) {
+				led_ctrl.cycles_left = 0; // бесконечно
+			} else {
+				uint32_t period = (led_ctrl.on_ms + led_ctrl.off_ms);
+				if (period == 0) period = 100; // защита от деления на 0
+				uint32_t total_ms = (uint32_t)timer100ms * 100u;
+				uint32_t cycles = total_ms / period;
+				if (cycles == 0) cycles = 1;
+				led_ctrl.cycles_left = (uint16_t)((cycles > 0xFFFFu) ? 0xFFFFu : cycles);
+			}
+			// Стартовая фаза – включение, если on_ms > 0, иначе – выключение
+			if (led_ctrl.on_ms > 0) {
+				led_ctrl.current_state = 1;
+				set_led_state(led_ctrl.temp_on_color_is_on ? 1 : 0);
+				led_ctrl.phase_ms_left = led_ctrl.on_ms;
+			} else {
+				led_ctrl.current_state = 0;
+				set_led_state(led_ctrl.temp_off_color_is_on ? 1 : 0);
+				led_ctrl.phase_ms_left = led_ctrl.off_ms;
+			}
+			led_ctrl.temp_active = 1;
+		}
+	}
 }
 
 void osdp_init(uint8_t device_address)
@@ -94,7 +393,7 @@ void osdp_init(uint8_t device_address)
 	rx_pos = 0;
 }
 
-void osdp_on_rx_byte(uint8_t byte)
+void osdp_on_rx_byte(uint8_t byte) // парсер входящих байтов
 {
 	switch (rx_state) {
 	case st_wait_som:
@@ -110,10 +409,10 @@ void osdp_on_rx_byte(uint8_t byte)
 		break;
 	case st_wait_len_l:
 		rx_buf[rx_pos++] = byte;
-		rx_expected_len = byte; // LSB
-		rx_state = st_wait_len_h;
+		rx_expected_len = byte;
+		rx_state = st_wait_len_m;
 		break;
-	case st_wait_len_h:
+	case st_wait_len_m:
 		rx_buf[rx_pos++] = byte;
 		rx_expected_len |= ((uint16_t)byte << 8);
 		if (rx_expected_len < 8 || rx_expected_len > sizeof(rx_buf)) {
@@ -134,7 +433,7 @@ void osdp_on_rx_byte(uint8_t byte)
 					uint8_t seq = (uint8_t)(ctrl & 0x03);
 					uint8_t cmd = rx_buf[5];
 					// На широковещательный (0x7F) отвечать нельзя
-					int should_reply = (addr != 0x7F);
+					char should_reply = (addr != 0x7F);
 					switch (cmd) {
 					case osdp_POLL:
 						if (should_reply) osdp_build_and_send_ack(seq);
@@ -142,11 +441,58 @@ void osdp_on_rx_byte(uint8_t byte)
 					case osdp_ID:
 						if (should_reply) osdp_build_and_send_pdid(seq);
 						break;
-					default:
-						// Для прочих команд пока только ACK без данных
+					case osdp_CAP:
+						if (should_reply) osdp_build_and_send_pdcap(seq);
+						break;
+					case osdp_ISTAT:
+						if (should_reply) osdp_build_and_send_istat(seq);
+						break;
+					case osdp_OSTAT:
+						if (should_reply) osdp_build_and_send_ostat(seq);
+						break;
+					case osdp_COMSET: {
+						// Ожидаем 5 байт данных: [addr][baud L][baud H][baud HH][baud HHH]
+						uint16_t data_len = (uint16_t)(rx_expected_len - 8);
+						if (data_len == 5) {
+							uint8_t *data = &rx_buf[6];
+							uint8_t new_addr = (uint8_t)(data[0] & 0x7F);
+							uint32_t new_baud = (uint32_t)data[1] |
+							                    ((uint32_t)data[2] << 8) |
+							                    ((uint32_t)data[3] << 16) |
+							                    ((uint32_t)data[4] << 24);
+							// Отправим ответ osdp_COM с теми же параметрами
+							if (should_reply) osdp_build_and_send_com(seq, new_addr, new_baud);
+							// Применим локально: адрес и скорость UART
+							g_addr = new_addr;
+							if (new_baud >= 1200 && new_baud <= 921600) {
+								set_uart_baud(new_baud);
+							}
+						} else {
+							// Неправильная длина — NAK (reason 0x02: invalid length)
+							if (should_reply) osdp_build_and_send_nak(seq, 0x02);
+						}
+						break;
+					}
+					case osdp_LED: {
+						uint16_t data_len = (uint16_t)(rx_expected_len - 8);
+						uint8_t *data = &rx_buf[6];
+						handle_osdp_led(data, data_len);
 						if (should_reply) osdp_build_and_send_ack(seq);
 						break;
 					}
+					default:
+						// Неизвестная команда — NAK (reason 0x03: unknown command)
+						if (should_reply) osdp_build_and_send_nak(seq, 0x03);
+						break;
+					}
+				}
+			} else {
+				// Плохая CRC — NAK (reason 0x01), если это не широковещательный адрес
+				uint8_t addr = (uint8_t)(rx_buf[1] & 0x7F);
+				if (addr != 0x7F) {
+					uint8_t ctrl = rx_buf[4];
+					uint8_t seq = (uint8_t)(ctrl & 0x03);
+					osdp_build_and_send_nak(seq, 0x01);
 				}
 			}
 			// Готовы к следующему пакету
@@ -158,5 +504,3 @@ void osdp_on_rx_byte(uint8_t byte)
 		break;
 	}
 }
-
-

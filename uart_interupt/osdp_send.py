@@ -45,9 +45,27 @@ def frame(addr, ctrl, cmd, data=b""):
     buf += bytes([c & 0xFF, (c >> 8) & 0xFF])
     return bytes(buf)
 
-ser = serial.Serial('COM4', 9600, timeout=1)
+def led_full_perm(perm_code: int) -> bytes:
+    # Полный формат (12 байт данных): [reader, led, temp(6), perm_code, perm_on_color, perm_off_color, perm_timer]
+    return bytes([
+        0x00, 0x00,              # reader=0, led=0
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  # temporary control: не используем
+        perm_code & 0xFF, 0x00, 0x00, 0x00   # permanent: code(1=OFF,2=ON,3=TOGGLE), цвета/таймер=0
+    ])
+
+def led_temp_blink(on_100ms: int, off_100ms: int, cycles: int) -> bytes:
+    # Временное мигание: [reader=0][led=0][temp_ctrl=3][on][off][on_color=0][off_color=0][cycles]
+    return bytes([0x00, 0x00, 0x03, on_100ms & 0xFF, off_100ms & 0xFF, 0x00, 0x00, cycles & 0xFF])
+
+ser = serial.Serial('COM4', 115200, timeout=1)
 ser.write(frame(0x01, 0x05, 0x60))  # POLL, seq=1, CRC-бит=1
 print('POLL →', ser.read(64).hex())
 ser.write(frame(0x01, 0x06, 0x61))  # ID,   seq=2, CRC-бит=1
 print('ID →', ser.read(64).hex())
+
+# Мигание: 2 секунды включён, 1 секунда выключен, бесконечно
+ser.write(frame(0x01, 0x07, 0x69, led_temp_blink(20, 10, 0)))  # seq=3
+print('LED BLINK (2s/1s) →', ser.read(64).hex())
+
+
 ser.close()
