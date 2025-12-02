@@ -8,8 +8,8 @@
     ],
     "C_Cpp.default.includePath": [
         "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\osdp",
-        "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\device\\Include",
-        "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\plib\\inc"
+        "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\plib\\inc",
+        "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\device\\Include"
     ],
     "files.associations": {
         "stdint.h": "c",

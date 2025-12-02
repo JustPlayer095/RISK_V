@@ -43,10 +43,33 @@ void retarget_init()
     #elif (RETARGET_UART_NUM == 3)
     RCU->CGCFGAPB_bit.UART3EN = 1;
     RCU->RSTDISAPB_bit.UART3EN = 1;
+    #elif (RETARGET_UART_NUM == 4)
+    RCU->CGCFGAPB_bit.UART4EN = 1;
+    RCU->RSTDISAPB_bit.UART4EN = 1;
     #endif
 
-    RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN2 = 1;
-    RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN3 = 1;
+    // Настройка альтернативной функции для пинов UART
+    // Используем макросы RETARGET_UART_PIN_TX_POS и RETARGET_UART_PIN_RX_POS
+    if (RETARGET_UART_PIN_TX_POS == 2) {
+      RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN2 = 1;
+    } else if (RETARGET_UART_PIN_TX_POS == 3) {
+      RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN3 = 1;
+    } else if (RETARGET_UART_PIN_TX_POS == 8) {
+      RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN8 = 1;
+    } else if (RETARGET_UART_PIN_TX_POS == 9) {
+      RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN9 = 1;
+    }
+    
+    if (RETARGET_UART_PIN_RX_POS == 2) {
+      RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN2 = 1;
+    } else if (RETARGET_UART_PIN_RX_POS == 3) {
+      RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN3 = 1;
+    } else if (RETARGET_UART_PIN_RX_POS == 8) {
+      RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN8 = 1;
+    } else if (RETARGET_UART_PIN_RX_POS == 9) {
+      RETARGET_UART_PORT->ALTFUNCNUM_bit.PIN9 = 1;
+    }
+    
     RETARGET_UART_PORT->ALTFUNCSET = (1 << RETARGET_UART_PIN_TX_POS) | (1 << RETARGET_UART_PIN_RX_POS);
 
     // Настраиваем UART0 с более детальной конфигурацией

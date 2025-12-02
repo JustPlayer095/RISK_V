@@ -10,6 +10,7 @@ enum {
 	osdp_CAP     = 0x62,
 	osdp_ISTAT   = 0x65, 
 	osdp_OSTAT   = 0x66,
+	osdp_OUT     = 0x68,  // Output Control Command
 	osdp_LED     = 0x69,
 	osdp_COMSET  = 0x6E,
 	// коды ответов
