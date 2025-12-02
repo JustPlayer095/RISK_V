@@ -9,7 +9,22 @@
 #define OSDP_SOM 0x53
 #define OSDP_HEADER_LEN 8
 
-static uint8_t g_addr = 0x01;
+static const uint8_t __attribute__((section(".rodata.osdp_addr"))) osdp_addr_default = 0x01;
+
+// Текущий адрес в RAM (копия из Flash для быстрого доступа)
+static uint8_t g_addr;
+
+// Функция для получения адреса из Flash памяти
+static uint8_t osdp_get_addr_from_flash(void)
+{
+	// Читаем адрес из секции Flash (.rodata)
+	// Если адрес невалидный (0 или >0x7F), используем значение по умолчанию
+	uint8_t addr = osdp_addr_default;
+	if (addr <= 0 || addr > 0x7F) {
+		addr = 0x01; // Значение по умолчанию
+	}
+	return addr;
+}
 
 typedef enum {
 	st_wait_som = 0,
@@ -22,7 +37,7 @@ typedef enum {
 static rx_state_t rx_state = st_wait_som;
 static uint16_t   rx_expected_len = 0;
 static uint16_t   rx_pos = 0;
-static uint8_t    rx_buf[256];
+static uint8_t    rx_buf[64];
 
 static void osdp_send_blocking(const uint8_t *data, uint16_t len)
 {
@@ -86,7 +101,7 @@ static void osdp_build_and_send_pdid(uint8_t seq)
 		'A','B','C',             // условный вендор
 		1,                       // модель
 		1,                       // версия
-		0x11,0x11,0x11,0x11,     // серийный
+		0x01,0x00,0x00,0x00,     // серийный
 		1,1,1                    // 1.0.0
 	};
 	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(pdid));
@@ -101,11 +116,10 @@ static void osdp_build_and_send_pdcap(uint8_t seq)
 {
 	uint8_t tx[64];
 	uint16_t i = 0;
-	// [Function][Compliance/LSB][NumberOf/MSB] согласно IEC 60839-11-5 (Annex B)
 	// Включены коды 0x01..0x10; неподдерживаемые помечены CL=0 и Number=0.
 	uint8_t caps[] = {
-		0x01, 0x01, 0x01, // 1  Inputs: CL=01, Number=1
-		0x02, 0x01, 0x01, // 2  Outputs: CL=01, Number=1
+		0x01, 0x01, 0x04, // 1  Inputs: CL=01, Number=2
+		0x02, 0x01, 0x04, // 2  Outputs: CL=01, Number=2
 		0x03, 0x00, 0x00, // 3  Card data format: not supported
 		0x04, 0x01, 0x01, // 4  Reader LED control: CL=01, Number=1
 		0x05, 0x00, 0x00, // 5  Reader audible output: not supported
@@ -119,7 +133,7 @@ static void osdp_build_and_send_pdcap(uint8_t seq)
 		0x0D, 0x00, 0x00, // 13 Readers: none
 		0x0E, 0x00, 0x00, // 14 Biometrics: none
 		0x0F, 0x00, 0x00, // 15 Secure PIN entry: not supported
-		0x10, 0x01, 0x00  // 16 OSDP version: IEC 60839-11-5
+		0x10, 0x01, 0x00  // 16 OSDP version: IEC 60839-11-5(почему-то не отображается в утилите osdp client)
 	};
 	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(caps));
 	i = osdp_build_header(tx, dlen, seq);
@@ -146,25 +160,48 @@ static void osdp_build_and_send_com(uint8_t seq, uint8_t new_addr, uint32_t new_
 
 static void set_led_state(uint8_t on)
 {
-	// LED на PA0 уже сконфигурирован в main.c
 	if (on) {
-		GPIO_SetBits(GPIOA, GPIO_Pin_0);
+		GPIO_SetBits(GPIOA, GPIO_Pin_15);
+		GPIO_SetBits(GPIOA, GPIO_Pin_14);
+		GPIO_SetBits(GPIOA, GPIO_Pin_13);
+		GPIO_SetBits(GPIOA, GPIO_Pin_12);
 	} else {
-		GPIO_ClearBits(GPIOA, GPIO_Pin_0);
+		GPIO_ClearBits(GPIOA, GPIO_Pin_15);
+		GPIO_ClearBits(GPIOA, GPIO_Pin_14);
+		GPIO_ClearBits(GPIOA, GPIO_Pin_13);
+		GPIO_ClearBits(GPIOA, GPIO_Pin_12);
 	}
 }
+
+// Структура для управления состоянием выходов с таймерами
+typedef struct {
+	uint8_t  permanent_state;  // Постоянное состояние: 0=OFF, 1=ON
+	uint8_t  temp_active;      // Активна ли временная операция (0x05 или 0x06)
+	uint8_t  temp_state;       // Временное состояние: 0=OFF, 1=ON
+	uint32_t timer_ms_left;    // Оставшееся время таймера в миллисекундах (0 = таймер не активен)
+	uint8_t  allow_completion; // Разрешить завершение временной операции (для 0x03, 0x04)
+} output_ctrl_t;
+
+static output_ctrl_t output_ctrl[4]; // Состояние для 4 выходов (PA12-PA15)
 
 static void osdp_build_and_send_istat(uint8_t seq)
 {
 	uint8_t tx[16];
 	uint16_t i = 0;
-	// Дополнительных данных 1 байт: бит0 = состояние входа 0 (кнопка на PA1, 1=активно)
+	// Дополнительных данных 1 байт:
+	//  - бит0 = состояние входа 0 (PA0)
+	//  - бит1 = состояние входа 1 (PA1)
+	//  - бит2 = состояние входа 2 (PA2)
+	//  - бит3 = состояние входа 3 (PA3)
 	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + 1);
 	i = osdp_build_header(tx, dlen, seq);
 	tx[i++] = osdp_ISTATR;
 	uint8_t inputs = 0;
-	// Кнопка с PU активна уровнем 0 → инвертируем, чтобы 1 означало "замкнуто/нажато"
-	inputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_1) ? 0u : 1u) << 0;
+	// Кнопки с PU активны уровнем 0 → инвертируем, чтобы 1 означало "замкнуто/нажато"
+	inputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_0) ? 0u : 1u) << 0; 
+	inputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_1) ? 0u : 1u) << 1; 
+	inputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_2) ? 0u : 1u) << 2; 
+	inputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_3) ? 0u : 1u) << 3; 
 	tx[i++] = inputs;
 	osdp_build_crc_and_send(tx, i);
 }
@@ -173,41 +210,161 @@ static void osdp_build_and_send_ostat(uint8_t seq)
 {
 	uint8_t tx[16];
 	uint16_t i = 0;
-	// Дополнительных данных 1 байт: бит0 = состояние выхода 0 (LED на PA0, 1=включен)
+	// Дополнительных данных 1 байт:
+	//  - бит0 = состояние выхода 0 (PA12, 1=включен)
+	//  - бит1 = состояние выхода 1 (PA13, 1=включен)
+	//  - бит2 = состояние выхода 2 (PA14, 1=включен)
+	//  - бит3 = состояние выхода 3 (PA15, 1=включен)
 	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + 1);
 	i = osdp_build_header(tx, dlen, seq);
 	tx[i++] = osdp_OSTATR;
 	uint8_t outputs = 0;
-	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_0) ? 1u : 0u) << 0;
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_12) ? 1u : 0u) << 0; // PA12 - выход 0
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_13) ? 1u : 0u) << 1; // PA13 - выход 1
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_14) ? 1u : 0u) << 2; // PA14 - выход 2
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_15) ? 1u : 0u) << 3; // PA15 - выход 3
 	tx[i++] = outputs;
 	osdp_build_crc_and_send(tx, i);
 }
 
+// Обработка команды OUT (Output Control Command) согласно стандарту OSDP
+// Формат данных: 4 байта на выход, повторяющиеся 1 или более раз:
+//   - Output number (1 byte): номер выхода (0x00 = первый выход, 0x01 = второй выход и т.д.)
+//   - Control code (1 byte): код управления согласно Table 14 стандарта OSDP
+//   - Timer LSB (1 byte): младший байт таймера в единицах 100мс
+//   - Timer MSB (1 byte): старший байт таймера (0 = навсегда)
+// 
+// Control code values (Table 14):
+//   0x00: NOP – do not alter this output
+//   0x01: set the permanent state to OFF, abort timed operation (if any)
+//   0x02: set the permanent state to ON, abort timed operation (if any)
+//   0x03: set the permanent state to OFF, allow timed operation to complete
+//   0x04: set the permanent state to ON, allow timed operation to complete
+//   0x05: set the temporary state to ON, resume permanent state on timeout
+//   0x06: set the temporary state to OFF, resume permanent state on timeout
+static void handle_osdp_out(uint8_t *data, uint16_t data_len)
+{
+	// Массив пинов для выходов: PA12, PA13, PA14, PA15
+	const uint32_t output_pins[4] = {GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15};
+	
+	// Проверяем, что длина данных кратна 4 (стандартный формат OSDP)
+	if ((data_len % 4) != 0 || data_len < 4) {
+		// Неправильный формат - игнорируем
+		return;
+	}
+	
+	// Обрабатываем данные по 4 байта на каждый выход
+	uint16_t count = (uint16_t)(data_len / 4u);
+	for (uint16_t i = 0; i < count; i++) {
+		uint8_t *p = &data[i * 4u];
+		uint8_t output_num = p[0];
+		uint8_t control_code = p[1];
+		uint16_t timer_100ms = (uint16_t)p[2] | ((uint16_t)p[3] << 8);
+		
+		// Проверяем, что номер выхода в допустимом диапазоне (0-3)
+		if (output_num >= 4) continue;
+		
+		uint32_t pin = output_pins[output_num];
+		
+		// Обработка команд управления выходом согласно стандарту OSDP Table 14
+		switch (control_code) {
+		case 0x00: // NOP – do not alter this output
+			break;
+			
+		case 0x01: // set the permanent state to OFF, abort timed operation (if any)
+			output_ctrl[output_num].permanent_state = 0;
+			output_ctrl[output_num].temp_active = 0; // Прервать временную операцию
+			output_ctrl[output_num].timer_ms_left = 0;
+			GPIO_ClearBits(GPIOA, pin);
+			break;
+			
+		case 0x02: // set the permanent state to ON, abort timed operation (if any)
+			output_ctrl[output_num].permanent_state = 1;
+			output_ctrl[output_num].temp_active = 0; // Прервать временную операцию
+			output_ctrl[output_num].timer_ms_left = 0;
+			GPIO_SetBits(GPIOA, pin);
+			break;
+			
+		case 0x03: // set the permanent state to OFF, allow timed operation to complete
+			output_ctrl[output_num].permanent_state = 0;
+			output_ctrl[output_num].allow_completion = 1; // Разрешить завершение временной операции
+			// Если временная операция не активна, сразу установить постоянное состояние
+			if (!output_ctrl[output_num].temp_active) {
+				GPIO_ClearBits(GPIOA, pin);
+			}
+			break;
+			
+		case 0x04: // set the permanent state to ON, allow timed operation to complete
+			output_ctrl[output_num].permanent_state = 1;
+			output_ctrl[output_num].allow_completion = 1; // Разрешить завершение временной операции
+			// Если временная операция не активна, сразу установить постоянное состояние
+			if (!output_ctrl[output_num].temp_active) {
+				GPIO_SetBits(GPIOA, pin);
+			}
+			break;
+			
+		case 0x05: // set the temporary state to ON, resume permanent state on timeout
+			output_ctrl[output_num].temp_active = 1;
+			output_ctrl[output_num].temp_state = 1;
+			output_ctrl[output_num].allow_completion = 0;
+			if (timer_100ms == 0) {
+				// Таймер = 0 означает "навсегда" - устанавливаем как постоянное состояние
+				output_ctrl[output_num].permanent_state = 1;
+				output_ctrl[output_num].temp_active = 0;
+				output_ctrl[output_num].timer_ms_left = 0;
+			} else {
+				output_ctrl[output_num].timer_ms_left = (uint32_t)timer_100ms * 100u; // Конвертируем в миллисекунды
+			}
+			GPIO_SetBits(GPIOA, pin);
+			break;
+			
+		case 0x06: // set the temporary state to OFF, resume permanent state on timeout
+			output_ctrl[output_num].temp_active = 1;
+			output_ctrl[output_num].temp_state = 0;
+			output_ctrl[output_num].allow_completion = 0;
+			if (timer_100ms == 0) {
+				// Таймер = 0 означает "навсегда" - устанавливаем как постоянное состояние
+				output_ctrl[output_num].permanent_state = 0;
+				output_ctrl[output_num].temp_active = 0;
+				output_ctrl[output_num].timer_ms_left = 0;
+			} else {
+				output_ctrl[output_num].timer_ms_left = (uint32_t)timer_100ms * 100u; // Конвертируем в миллисекунды
+			}
+			GPIO_ClearBits(GPIOA, pin);
+			break;
+			
+		default:
+			// Неизвестный код управления - игнорируем согласно стандарту
+			break;
+		}
+	}
+}
+
 static void set_uart_baud(uint32_t baud)
 {
-	// Настроить делители UART1 по формуле из UART1_init()
+	// Настроить делители UART4 по формуле из UART4_init()
 	// Предполагаем источник тактирования HSE, как в init
 	uint32_t baud_icoef = HSECLK_VAL / (16u * baud);
 	float    f = (float)HSECLK_VAL / (16.0f * (float)baud) - (float)baud_icoef;
 	uint32_t baud_fcoef = (uint32_t)(f * 64.0f + 0.5f);
-	uint32_t cr_saved   = UART1->CR;
-	uint32_t lcrh_saved = UART1->LCRH;
-	uint32_t imsc_saved = UART1->IMSC;
+	uint32_t cr_saved   = UART4->CR;
+	uint32_t lcrh_saved = UART4->LCRH;
+	uint32_t imsc_saved = UART4->IMSC;
 	// Дождаться окончания текущей передачи/приёма, чтобы не обрывать ответ
-	while (UART1->FR_bit.BUSY) { }
+	while (UART4->FR_bit.BUSY) { }
 	// Остановить UART
-	UART1->CR = 0;
-	UART1->IBRD = baud_icoef;
-	UART1->FBRD = baud_fcoef;
+	UART4->CR = 0;
+	UART4->IBRD = baud_icoef;
+	UART4->FBRD = baud_fcoef;
 	// Перезаписать формат кадра и включить FIFO как в init (8N1, FIFO EN)
-	UART1->LCRH = UART_LCRH_FEN_Msk | (3u << UART_LCRH_WLEN_Pos);
+	UART4->LCRH = UART_LCRH_FEN_Msk | (3u << UART_LCRH_WLEN_Pos);
 	// Очистить все флаги прерываний
-	UART1->ICR = 0x7FF;
-	while (!UART1->FR_bit.RXFE) { (void)UART1->DR_bit.DATA; }
+	UART4->ICR = 0x7FF;
+	while (!UART4->FR_bit.RXFE) { (void)UART4->DR_bit.DATA; }
 	// Восстановить маску прерываний (на случай, если аппаратно сбросилась)
-	UART1->IMSC = imsc_saved;
+	UART4->IMSC = imsc_saved;
 	// Включить обратно (TX, RX, UARTEN)
-	UART1->CR = cr_saved | UART_CR_TXE_Msk | UART_CR_RXE_Msk | UART_CR_UARTEN_Msk;
+	UART4->CR = cr_saved | UART_CR_TXE_Msk | UART_CR_RXE_Msk | UART_CR_UARTEN_Msk;
 }
 
 typedef struct {
@@ -230,14 +387,32 @@ typedef struct {
 
 static led_ctrl_t led_ctrl;
 
-void osdp_tick_1ms(void)
+void osdp_tick_1ms(void) // вызывается каждую мс из main.c
 {
+	// Обработка таймеров выходов OSDP
+	const uint32_t output_pins[4] = {GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15};
+	for (uint8_t i = 0; i < 4; i++) {
+		if (output_ctrl[i].temp_active && output_ctrl[i].timer_ms_left > 0) {
+			--output_ctrl[i].timer_ms_left;
+			if (output_ctrl[i].timer_ms_left == 0) {
+				// Таймер истек - возвращаем постоянное состояние
+				output_ctrl[i].temp_active = 0;
+				if (output_ctrl[i].permanent_state) {
+					GPIO_SetBits(GPIOA, output_pins[i]);
+				} else {
+					GPIO_ClearBits(GPIOA, output_pins[i]);
+				}
+			}
+		}
+	}
+	
+	// Обработка таймеров LED
 	if (led_ctrl.phase_ms_left > 0) {
 		--led_ctrl.phase_ms_left;
 		return;
 	}
 
-	if (led_ctrl.temp_active) {
+	if (led_ctrl.temp_active) {  // проверка на профиль temp/perm
 		// Управление temp профилем
 		if (led_ctrl.current_state) {
 			// ON -> OFF
@@ -255,7 +430,7 @@ void osdp_tick_1ms(void)
 				if (led_ctrl.cycles_left == 0) {
 					// Конец временного режима – восстановить постоянный
 					led_ctrl.temp_active = 0;
-					// Запустить постоянный профиль: либо мигание, либо статика
+					// Запустить постоянный профиль
 					if (led_ctrl.perm_on_ms > 0 && led_ctrl.perm_off_ms > 0) {
 						led_ctrl.current_state = 1;
 						set_led_state(led_ctrl.perm_on_color_is_on ? 1 : 0);
@@ -290,20 +465,20 @@ static void handle_osdp_led(uint8_t *data, uint16_t data_len)
 	// Permanent: code, on, off, on_color, off_color
 	if (data_len < 14) return;
 	uint16_t count = (uint16_t)(data_len / 14u);
-	for (uint16_t rec = 0; rec < count; rec++) {
+	for (uint16_t rec = 0; rec < count; rec++) {     // rec - запись
 		uint8_t *p = &data[rec * 14u];
 		uint8_t reader = p[0];
 		uint8_t lednum  = p[1];
-		if (!(reader == 0 && lednum == 0)) continue; // у нас один LED: reader0, led0
+		if (!(reader == 0 && lednum == 0)) continue; // у нас пока один LED: reader0, led0
 
-		uint8_t tcode  = p[2];
+		uint8_t tcode  = p[2];  // 0 - NOP, 1 - cancel, 2 - start now
 		uint8_t tOn100ms = p[3];
 		uint8_t tOff100ms = p[4];
 		uint8_t tOnColor  = p[5];
 		uint8_t tOffColor = p[6];
 		uint16_t timer100ms = (uint16_t)p[7] | ((uint16_t)p[8] << 8);
 
-		uint8_t pcode  = p[9];
+		uint8_t pcode  = p[9];  // 0 - NOP, 1 - start now
 		uint8_t pOn100ms = p[10];
 		uint8_t pOff100ms= p[11];
 		uint8_t pOnColor  = p[12];
@@ -311,23 +486,23 @@ static void handle_osdp_led(uint8_t *data, uint16_t data_len)
 
 		// Обновим постоянный профиль, если требуется
 		if (pcode == 0x01) {
-			uint32_t pon_ms  = (uint32_t)pOn100ms  * 100u;
-			uint32_t poff_ms = (uint32_t)pOff100ms * 100u;
-			led_ctrl.perm_on_ms  = pon_ms;
-			led_ctrl.perm_off_ms = poff_ms;
+			uint32_t pOn_ms  = (uint32_t)pOn100ms  * 100u;
+			uint32_t pOff_ms = (uint32_t)pOff100ms * 100u;
+			led_ctrl.perm_on_ms  = pOn_ms;
+			led_ctrl.perm_off_ms = pOff_ms;
 			led_ctrl.perm_on_color_is_on  = (pOnColor  != 0);
 			led_ctrl.perm_off_color_is_on = (pOffColor != 0);
-			if (pon_ms > 0 && poff_ms == 0) {
+			if (pOn_ms > 0 && pOff_ms == 0) {
 				led_ctrl.perm_state = (pOnColor != 0) ? 1 : 0; // цветом управляем "включённостью"
-			} else if (pon_ms == 0 && poff_ms > 0) {
+			} else if (pOn_ms == 0 && pOff_ms > 0) {
 				led_ctrl.perm_state = (pOffColor != 0) ? 1 : 0;
 			}
 			// Если temp режима нет – применим сразу
 			if (!led_ctrl.temp_active) {
-				if (pon_ms > 0 && poff_ms > 0) {
+				if (pOn_ms > 0 && pOff_ms > 0) {
 					led_ctrl.current_state = 1;
 					set_led_state(led_ctrl.perm_on_color_is_on ? 1 : 0);
-					led_ctrl.phase_ms_left = pon_ms;
+					led_ctrl.phase_ms_left = pOn_ms;
 				} else {
 					set_led_state(led_ctrl.perm_state);
 				}
@@ -355,8 +530,8 @@ static void handle_osdp_led(uint8_t *data, uint16_t data_len)
 			// Установить временный режим немедленно и запустить таймер
 			uint32_t on_ms  = (uint32_t)tOn100ms  * 100u;
 			uint32_t off_ms = (uint32_t)tOff100ms  * 100u;
-			led_ctrl.on_ms  = (on_ms  > 0) ? on_ms  : 0;
-			led_ctrl.off_ms = (off_ms > 0) ? off_ms : 0;
+			led_ctrl.on_ms  = (on_ms  > 0) ? on_ms  : 0; //защита от отрицательных значений
+			led_ctrl.off_ms = (off_ms > 0) ? off_ms : 0; 
 			led_ctrl.temp_on_color_is_on  = (tOnColor  != 0);
 			led_ctrl.temp_off_color_is_on = (tOffColor != 0);
 			// Рассчитать количество циклов из таймера, если задан
@@ -385,12 +560,27 @@ static void handle_osdp_led(uint8_t *data, uint16_t data_len)
 	}
 }
 
+
 void osdp_init(uint8_t device_address)
 {
-	g_addr = (uint8_t)(device_address & 0x7F);
+	// Если передан адрес 0xFF, читаем из Flash, иначе используем переданный
+	if (device_address == 0xFF) {
+		g_addr = osdp_get_addr_from_flash();
+	} else {
+		g_addr = (uint8_t)(device_address & 0x7F);
+	}
 	rx_state = st_wait_som;
 	rx_expected_len = 0;
 	rx_pos = 0;
+	
+	// Инициализация состояния выходов
+	for (uint8_t i = 0; i < 4; i++) {
+		output_ctrl[i].permanent_state = 0; // По умолчанию все выходы выключены
+		output_ctrl[i].temp_active = 0;
+		output_ctrl[i].temp_state = 0;
+		output_ctrl[i].timer_ms_left = 0;
+		output_ctrl[i].allow_completion = 0;
+	}
 }
 
 void osdp_on_rx_byte(uint8_t byte) // парсер входящих байтов
@@ -477,6 +667,13 @@ void osdp_on_rx_byte(uint8_t byte) // парсер входящих байтов
 						uint16_t data_len = (uint16_t)(rx_expected_len - 8);
 						uint8_t *data = &rx_buf[6];
 						handle_osdp_led(data, data_len);
+						if (should_reply) osdp_build_and_send_ack(seq);
+						break;
+					}
+					case osdp_OUT: {  // Обработка команды OUT (0x68)
+						uint16_t data_len = (uint16_t)(rx_expected_len - 8);
+						uint8_t *data = &rx_buf[6];
+						handle_osdp_out(data, data_len);
 						if (should_reply) osdp_build_and_send_ack(seq);
 						break;
 					}

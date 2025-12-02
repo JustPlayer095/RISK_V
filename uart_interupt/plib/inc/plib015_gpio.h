@@ -170,8 +170,8 @@ typedef enum {
   * @brief  Выбор режима работы входа
   */
 typedef enum {
-    GPIO_InMode_Schmitt = GPIO_INMODE_PIN0_Schmitt, /*!< Режим push-pull */
-    GPIO_InMode_Disable = GPIO_INMODE_PIN0_Disable  /*!< Режим open-source */
+    GPIO_InMode_Schmitt = GPIO_INMODE_PIN10_Schmitt, /*!< Режим push-pull */
+    GPIO_InMode_Disable = GPIO_INMODE_PIN10_Disable  /*!< Режим open-source */
 } GPIO_InMode_TypeDef;
 #define IS_GPIO_IN_MODE(VALUE) (((VALUE) == GPIO_InMode_Schmitt) || \
                                 ((VALUE) == GPIO_InMode_Disable))
