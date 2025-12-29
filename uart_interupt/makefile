@@ -28,7 +28,7 @@ HEADERS := $(call rwildcard,.,*.h)
 OBJS := $(SRCS:.c=.o)
 OBJS += $(ASMS:.S=.o)
 	
-INCLUDE_FOLDERS = $(foreach inc, $(sort $(dir $(HEADERS))), -I"$(inc)") -I"./device/Include" -I"./plib/inc"
+INCLUDE_FOLDERS = $(foreach inc, $(sort $(dir $(HEADERS))), -I"$(inc)") -I"./device/Include" -I"./plib/inc" -I"."
 OBJ_DIRS = $(sort $(dir $(OBJS)))
 OBJ_DIRS := $(patsubst ./%,%,$(OBJ_DIRS))
 	
@@ -58,7 +58,7 @@ endif
 
 ifeq ($(OS), Windows_NT)
 make_build:
-	@ -$(foreach dir, $(OBJ_DIRS), mkdir "$(BUILD_PATH)/$(dir)" && ):
+	@for %%d in ($(OBJ_DIRS)) do @if not exist "$(BUILD_PATH)/%%d" mkdir "$(BUILD_PATH)/%%d"
 else
 make_build:
 	@ -$(foreach dir,$(OBJ_DIRS),mkdir -p $(BUILD_PATH)/$(dir) && ):

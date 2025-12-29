@@ -10,7 +10,7 @@
             "name": "Debug NIIET uart_interupt",
             "type": "cppdbg",
             "request": "launch",
-            "program": "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\build\\uart_interupt.elf",
+            "program": "c:\\_WORKSPACE\\WORKPROJECT\\uart_interupt\\build\\uart_interupt.elf",
             "cwd": "${workspaceFolder}",
             "MIMode": "gdb",
             "miDebuggerPath": "C:\\Users\\kac\\.niiet_aspect\\riscv_gcc_windows\\bin\\riscv64-unknown-elf-gdb.exe",
@@ -19,7 +19,7 @@
                     "text": "target extended-remote localhost:3333"
                 },
                 {
-                    "text": "exec-file c:\\\\_WORKSPACE\\\\RISK-V_projects\\\\uart_interupt\\\\build\\\\uart_interupt.elf"
+                    "text": "exec-file c:\\\\_WORKSPACE\\\\WORKPROJECT\\\\uart_interupt\\\\build\\\\uart_interupt.elf"
                 },
                 {
                     "text": "monitor reset halt"

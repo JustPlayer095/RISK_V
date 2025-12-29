@@ -1,6 +1,7 @@
 //-- Includes ------------------------------------------------------------------
 #include "device/Include/K1921VG015.h"
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include "device/Include/system_k1921vg015.h"
 #include "device/Include/retarget.h"
@@ -8,12 +9,16 @@
 #include "plib/inc/plib015_gpio.h"
 #include "plib/inc/plib015_tmr32.h"
 #include "osdp/osdp_min.h"
+#include "adcsar/adcsar.h"
+#include "driver/eeprom_spi.h"
+#include "config/config_storage.h"
+#include "gpio/gpio_helpers.h"
 
 //-- Defines -------------------------------------------------------------------
 #define UART4_BAUD  115200
 
-// Состояния LED на PA12-PA15
-static volatile uint8_t led_state[4] = {0, 0, 0, 0}; // состояние светодиодов PA12-PA15 (0=выкл,1=вкл)
+// Состояния LED на PA4-PA7
+static volatile uint8_t led_state[4] = {0, 0, 0, 0}; // состояние светодиодов PA4-PA7 (0=выкл,1=вкл)
 
 // Время последнего события для антидребезга кнопок PA0-PA3
 static volatile uint32_t g_btn_last_ms[4] = {0, 0, 0, 0};
@@ -24,13 +29,14 @@ static volatile uint8_t g_btn_last_state[4] = {1, 1, 1, 1};
 static const uint32_t g_debounce_ms = 50; // время антидребезга в мс
 // Таймер 1 мс на TMR32: 
 static volatile uint32_t ms_ticks = 0;
+static char g_adc_last_state = 'U';
+static char g_adc_candidate_state = 'U';
+static uint32_t g_adc_candidate_ms = 0;
+static const uint32_t g_adc_state_confirm_ms = 50; // задержка подтверждения смены состояния
+static config_storage_t g_cfg;
+static volatile bool g_spi_loopback_req = false; // запрос на SPI loopback (MOSI<->MISO)
 
 // Универсальные функции для инициализации GPIO
-static void gpio_reset_pin(GPIO_TypeDef* GPIOx, uint32_t Pin);
-static void gpio_init_output(GPIO_TypeDef* GPIOx, uint32_t Pin, uint8_t initial_state);
-static void gpio_init_input(GPIO_TypeDef* GPIOx, uint32_t Pin, GPIO_PullMode_TypeDef pull_mode);
-static void gpio_init_input_irq(GPIO_TypeDef* GPIOx, uint32_t Pin, GPIO_PullMode_TypeDef pull_mode, volatile uint8_t* last_state);
-
 static void uart4_irq_handler(void);
 static void gpio_irq_handler(void);
 static void uart_irq_init(void);
@@ -38,6 +44,7 @@ static void gpio_init(void);
 static void gpio_irq_init(void);
 static void tmr32_init(void);
 static void tmr32_irq_handler(void);
+static void cfg_store_and_report(void);
  
 
 void UART4_init()
@@ -76,6 +83,8 @@ void periph_init()
   SystemInit();
   SystemCoreClockUpdate();
   retarget_init();
+  adcsar_init();
+  eeprom_spi_init();
   UART4_init();
   // Инициализация OSDP: 0xFF означает читать адрес из Flash памяти
   osdp_init(0xFF);
@@ -84,7 +93,35 @@ void periph_init()
   uart_irq_init();
   gpio_irq_init();
   InterruptEnable();
-  printf("Hello World!\r\n");
+}
+
+static void cfg_store_and_report(void)
+{
+  // Сохранить пример конфига в EEPROM и сразу прочитать обратно
+  config_storage_default(&g_cfg);
+  g_cfg.osdp_addr = 0x01;    // пример адреса OSDP
+  g_cfg.osdp_baud = 115200;  // пример скорости
+  printf("CFG: start save/read\r\n");
+  // SPI тест с EEPROM: WREN + чтение статуса
+  uint8_t sr0 = eeprom_spi_read_status();
+  uint8_t sr1 = eeprom_spi_wren_and_status();
+  printf("SPI WREN test: SR0=0x%02X SR1=0x%02X\r\n", sr0, sr1);
+  printf("CFG: SR before save = 0x%02X\r\n", eeprom_spi_read_status());
+  config_storage_save(&g_cfg);
+  printf("CFG: SR after save  = 0x%02X\r\n", eeprom_spi_read_status());
+
+  if (config_storage_load(&g_cfg)) {
+    printf("CFG saved+read ok: addr=%u baud=%u\r\n", g_cfg.osdp_addr, (unsigned)g_cfg.osdp_baud);
+  } else {
+    printf("CFG read failed\r\n");
+    uint8_t raw[sizeof(config_storage_t)] = {0};
+    eeprom_spi_read_bytes(CONFIG_EEPROM_BASE, raw, sizeof(raw));
+    printf("CFG raw bytes (%u):", (unsigned)sizeof(raw));
+    for (size_t i = 0; i < sizeof(raw); ++i) {
+      printf(" %02X", raw[i]);
+    }
+    printf("\r\n");
+  }
 }
 
 //--- USER FUNCTIONS ----------------------------------------------------------------------
@@ -131,92 +168,6 @@ static void uart4_irq_handler(void)
                        UART_ICR_BEIC_Msk;
 }
 
-static void gpio_reset_pin(GPIO_TypeDef* GPIOx, uint32_t Pin)
-{
-  // 1. Отключить выход (OUTENCLR)
-  GPIO_OutCmd(GPIOx, Pin, DISABLE);
-  // 2. Очистить данные выхода (DATAOUTCLR)
-  GPIO_ClearBits(GPIOx, Pin);
-  // 3. Отключить альтернативную функцию (ALTFUNCCLR)
-  GPIO_AltFuncCmd(GPIOx, Pin, DISABLE); 
-  // 4. Сбросить номер альтернативной функции (ALTFUNCNUM = 0)
-  GPIO_AltFuncNumConfig(GPIOx, Pin, GPIO_AltFuncNum_None);
-}
-
-static void gpio_init_output(GPIO_TypeDef* GPIOx, uint32_t Pin, uint8_t initial_state)
-{
-  // Сначала сбрасываем состояние пина
-  gpio_reset_pin(GPIOx, Pin);
-  
-  GPIO_Init_TypeDef gpio;
-  GPIO_StructInit(&gpio);
-  gpio.Pin = Pin;
-  gpio.Out = ENABLE;                // включить выход
-  gpio.AltFunc = DISABLE;           // обычный GPIO
-  gpio.AltFuncNum = GPIO_AltFuncNum_None;
-  gpio.OutMode = GPIO_OutMode_PP;   // push-pull
-  gpio.PullMode = GPIO_PullMode_Disable;
-  GPIO_Init(GPIOx, &gpio);
-  
-  // Устанавливаем начальное состояние
-  if (initial_state) {
-    GPIO_SetBits(GPIOx, Pin);
-  } else {
-    GPIO_ClearBits(GPIOx, Pin);
-  }
-}
-
-static uint8_t gpio_qual_initialized = 0; // битовая маска: 0=GPIOA, 1=GPIOB, 2=GPIOC
-
-
-static void gpio_init_input(GPIO_TypeDef* GPIOx, uint32_t Pin, GPIO_PullMode_TypeDef pull_mode)
-{
-  // Сначала сбрасываем состояние пина
-  gpio_reset_pin(GPIOx, Pin);
-  
-  GPIO_Init_TypeDef gpio;
-  GPIO_StructInit(&gpio);
-  gpio.Pin = Pin;
-  gpio.Out = DISABLE;               // вход
-  gpio.AltFunc = DISABLE;
-  gpio.AltFuncNum = GPIO_AltFuncNum_None;
-  gpio.InMode = GPIO_InMode_Schmitt;
-  gpio.PullMode = pull_mode;
-  GPIO_Init(GPIOx, &gpio);
-
-  // Аппаратная фильтрация дребезга: пересинхронизация + квалификатор входа
-  GPIO_SyncCmd(GPIOx, Pin, ENABLE);
-  uint8_t port_mask = 0;
-  if (GPIOx == GPIOA) port_mask = 0x01;
-  
-  if (!(gpio_qual_initialized & port_mask)) {
-    GPIO_QualSampleConfig(GPIOx, 1000); // период дискретизации фильтра (такты HCLK)
-    gpio_qual_initialized |= port_mask;
-  }
-  
-  GPIO_QualModeConfig(GPIOx, Pin, GPIO_QualMode_6Sample); // более жесткая фильтрация
-  GPIO_QualCmd(GPIOx, Pin, ENABLE);
-}
-
-static void gpio_init_input_irq(GPIO_TypeDef* GPIOx, uint32_t Pin, GPIO_PullMode_TypeDef pull_mode, volatile uint8_t* last_state)
-{
-  // Сначала инициализируем как обычный вход
-  gpio_init_input(GPIOx, Pin, pull_mode);
-  
-  // Настраиваем прерывания
-  GPIO_ITTypeConfig(GPIOx, Pin, GPIO_IntType_Edge);
-  GPIO_ITPolConfig(GPIOx, Pin, GPIO_IntPol_Negative);
-  GPIO_ITEdgeConfig(GPIOx, Pin, GPIO_IntEdge_Any); // прерывание по обоим фронтам
-  GPIO_ITStatusClear(GPIOx, Pin);
-  
-  // Инициализируем предыдущее состояние кнопки (отпущена = 1)
-  if (last_state != NULL) {
-    *last_state = GPIO_ReadBit(GPIOx, Pin) ? 1 : 0;
-  }
-  
-  // Включить прерывание
-  GPIO_ITCmd(GPIOx, Pin, ENABLE);
-}
 
 static void gpio_init(void)
 {
@@ -224,19 +175,17 @@ static void gpio_init(void)
   RCU->CGCFGAHB_bit.GPIOAEN = 1;
   RCU->RSTDISAHB_bit.GPIOAEN = 1;
 
-  // LED на PA12-PA15 (начальное состояние: все выключены)
-  gpio_init_output(GPIOA, GPIO_Pin_12, 0);
-  gpio_init_output(GPIOA, GPIO_Pin_13, 0);
-  gpio_init_output(GPIOA, GPIO_Pin_14, 0);
-  gpio_init_output(GPIOA, GPIO_Pin_15, 0);
-
-  // Кнопки будут инициализированы в gpio_irq_init() через gpio_init_input_irq()
+  // LED на PA4-PA7 (начальное состояние: все выключены)
+  gpio_init_output(GPIOA, GPIO_Pin_4, 0);
+  gpio_init_output(GPIOA, GPIO_Pin_5, 0);
+  gpio_init_output(GPIOA, GPIO_Pin_6, 0);
+  gpio_init_output(GPIOA, GPIO_Pin_7, 0);
 }
 
 // Инициализация прерываний GPIO для кнопок
 static void gpio_irq_init(void)
 {
-  // Кнопки PA0-PA3 с прерываниями (PA8 и PA9 используются для UART4)
+  // Кнопки PA0-PA3
   gpio_init_input_irq(GPIOA, GPIO_Pin_0, GPIO_PullMode_PU, &g_btn_last_state[0]);
   gpio_init_input_irq(GPIOA, GPIO_Pin_1, GPIO_PullMode_PU, &g_btn_last_state[1]);
   gpio_init_input_irq(GPIOA, GPIO_Pin_2, GPIO_PullMode_PU, &g_btn_last_state[2]);
@@ -254,7 +203,7 @@ static void gpio_irq_handler(void)
   uint32_t now = ms_ticks;
   
   const uint32_t btn_pins[4] = {GPIO_Pin_0, GPIO_Pin_1, GPIO_Pin_2, GPIO_Pin_3};
-  const uint32_t led_pins[4] = {GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15};
+  const uint32_t led_pins[4] = {GPIO_Pin_4, GPIO_Pin_5, GPIO_Pin_6, GPIO_Pin_7};
   
   // Обработка всех 4 кнопок PA0-PA3
   for (uint8_t i = 0; i < 4; i++) {
@@ -264,17 +213,21 @@ static void gpio_irq_handler(void)
       if (g_btn_last_state[i] == 1 && btn_current == 0) {
         // Кнопка нажата (переход из 1 в 0)
         if ((now - g_btn_last_ms[i]) >= g_debounce_ms) {
-          // Переключаем состояние соответствующего LED (PA12-PA15)
+          // Переключаем состояние соответствующего LED (PA4-PA7)
           led_state[i] ^= 1u;
           if (led_state[i]) {
             GPIO_SetBits(GPIOA, led_pins[i]);
-            printf("LED%d ON (PA%d)\r\n", i+1, 12+i);
+            printf("LED%d ON (PA%d)\r\n", i+1, i+4);
           } else {
             GPIO_ClearBits(GPIOA, led_pins[i]);
-            printf("LED%d OFF (PA%d)\r\n", i+1, 12+i);
+            printf("LED%d OFF (PA%d)\r\n", i+1, i+4);
           }
           g_btn_last_ms[i] = now;
           g_btn_last_state[i] = btn_current;
+          // Кнопка PA0 дополнительно инициирует SPI loopback-тест
+          if (i == 0) {
+            g_spi_loopback_req = true;
+          }
         }
       } else if (g_btn_last_state[i] == 0 && btn_current == 1) {
         // Кнопка отпущена (переход из 0 в 1)
@@ -329,8 +282,34 @@ static void tmr32_irq_handler(void)
 int main(void)
 {
   periph_init();
+  cfg_store_and_report();
+  adcsar_start();
+
   while(1)
   {
+    if (g_spi_loopback_req) {
+      g_spi_loopback_req = false;
+      uint8_t sr0 = eeprom_spi_read_status();
+      uint8_t sr1 = eeprom_spi_wren_and_status();
+      printf("SPI WREN test: SR0=0x%02X SR1=0x%02X\r\n", sr0, sr1);
+    }
+
+    adcsar_sample_t sample;
+    if (adcsar_poll(&sample)) {
+      if (sample.state_char != g_adc_last_state) {
+        if (g_adc_candidate_state != sample.state_char) {
+          g_adc_candidate_state = sample.state_char;
+          g_adc_candidate_ms = ms_ticks;
+        } else if ((ms_ticks - g_adc_candidate_ms) >= g_adc_state_confirm_ms) {
+          printf("ADC state: %c\r\n", sample.state_char);
+          g_adc_last_state = sample.state_char;
+        }
+      } else {
+        g_adc_candidate_state = sample.state_char;
+        g_adc_candidate_ms = ms_ticks;
+      }
+    }
+    __asm volatile("wfi");
   }
 
   return 0;
