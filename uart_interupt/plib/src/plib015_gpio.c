@@ -117,7 +117,19 @@ void GPIO_PullModeConfig(GPIO_TypeDef* GPIOx, uint32_t Pin, GPIO_PullMode_TypeDe
     assert_param(IS_GPIO_PIN(Pin));
     assert_param(IS_GPIO_PULL_MODE(PullMode));
 
-    modeConfig(&(GPIOx->PULLMODE), Pin, (uint32_t)PullMode);
+    // PULLMODE использует 1 бит на пин (не 2 бита как другие регистры INMODE, OUTMODE, ALTFUNCNUM)
+    uint32_t temp = GPIOx->PULLMODE;
+    
+    for (uint32_t i = 0; i < 16; i++) {
+        if (Pin & (1 << i)) {
+            // Очищаем 1 бит для пина i
+            temp &= ~(0x1UL << i);
+            // Устанавливаем значение (0 или 1) в бит i
+            temp |= ((uint32_t)PullMode & 0x1UL) << i;
+        }
+    }
+    
+    WRITE_REG(GPIOx->PULLMODE, temp);
 }
 
 /**

@@ -7,12 +7,17 @@
         "RETARGET"
     ],
     "C_Cpp.default.includePath": [
-        "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\osdp",
-        "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\plib\\inc",
-        "c:\\_WORKSPACE\\RISK-V_projects\\uart_interupt\\device\\Include"
+        "c:\\_WORKSPACE\\WORKPROJECT\\uart_interupt\\adcsar",
+        "c:\\_WORKSPACE\\WORKPROJECT\\uart_interupt\\config",
+        "c:\\_WORKSPACE\\WORKPROJECT\\uart_interupt\\driver",
+        "c:\\_WORKSPACE\\WORKPROJECT\\uart_interupt\\gpio",
+        "c:\\_WORKSPACE\\WORKPROJECT\\uart_interupt\\osdp",
+        "c:\\_WORKSPACE\\WORKPROJECT\\uart_interupt\\device\\Include",
+        "c:\\_WORKSPACE\\WORKPROJECT\\uart_interupt\\plib\\inc"
     ],
     "files.associations": {
         "stdint.h": "c",
         "k1921vg015.h": "c"
-    }
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }

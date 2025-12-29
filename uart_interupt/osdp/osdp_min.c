@@ -102,7 +102,7 @@ static void osdp_build_and_send_pdid(uint8_t seq)
 		1,                       // модель
 		1,                       // версия
 		0x01,0x00,0x00,0x00,     // серийный
-		1,1,1                    // 1.0.0
+		1,1,1                    
 	};
 	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(pdid));
 	i = osdp_build_header(tx, dlen, seq);
@@ -161,15 +161,15 @@ static void osdp_build_and_send_com(uint8_t seq, uint8_t new_addr, uint32_t new_
 static void set_led_state(uint8_t on)
 {
 	if (on) {
-		GPIO_SetBits(GPIOA, GPIO_Pin_15);
-		GPIO_SetBits(GPIOA, GPIO_Pin_14);
-		GPIO_SetBits(GPIOA, GPIO_Pin_13);
-		GPIO_SetBits(GPIOA, GPIO_Pin_12);
+		GPIO_SetBits(GPIOA, GPIO_Pin_7);
+		GPIO_SetBits(GPIOA, GPIO_Pin_6);
+		GPIO_SetBits(GPIOA, GPIO_Pin_5);
+		GPIO_SetBits(GPIOA, GPIO_Pin_4);
 	} else {
-		GPIO_ClearBits(GPIOA, GPIO_Pin_15);
-		GPIO_ClearBits(GPIOA, GPIO_Pin_14);
-		GPIO_ClearBits(GPIOA, GPIO_Pin_13);
-		GPIO_ClearBits(GPIOA, GPIO_Pin_12);
+		GPIO_ClearBits(GPIOA, GPIO_Pin_7);
+		GPIO_ClearBits(GPIOA, GPIO_Pin_6);
+		GPIO_ClearBits(GPIOA, GPIO_Pin_5);
+		GPIO_ClearBits(GPIOA, GPIO_Pin_4);
 	}
 }
 
@@ -211,18 +211,15 @@ static void osdp_build_and_send_ostat(uint8_t seq)
 	uint8_t tx[16];
 	uint16_t i = 0;
 	// Дополнительных данных 1 байт:
-	//  - бит0 = состояние выхода 0 (PA12, 1=включен)
-	//  - бит1 = состояние выхода 1 (PA13, 1=включен)
-	//  - бит2 = состояние выхода 2 (PA14, 1=включен)
-	//  - бит3 = состояние выхода 3 (PA15, 1=включен)
+
 	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + 1);
 	i = osdp_build_header(tx, dlen, seq);
 	tx[i++] = osdp_OSTATR;
 	uint8_t outputs = 0;
-	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_12) ? 1u : 0u) << 0; // PA12 - выход 0
-	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_13) ? 1u : 0u) << 1; // PA13 - выход 1
-	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_14) ? 1u : 0u) << 2; // PA14 - выход 2
-	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_15) ? 1u : 0u) << 3; // PA15 - выход 3
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_4) ? 1u : 0u) << 0; 
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_5) ? 1u : 0u) << 1; 
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_6) ? 1u : 0u) << 2; 
+	outputs |= (GPIO_ReadBit(GPIOA, GPIO_Pin_7) ? 1u : 0u) << 3; 
 	tx[i++] = outputs;
 	osdp_build_crc_and_send(tx, i);
 }
@@ -244,8 +241,8 @@ static void osdp_build_and_send_ostat(uint8_t seq)
 //   0x06: set the temporary state to OFF, resume permanent state on timeout
 static void handle_osdp_out(uint8_t *data, uint16_t data_len)
 {
-	// Массив пинов для выходов: PA12, PA13, PA14, PA15
-	const uint32_t output_pins[4] = {GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15};
+	// Массив пинов для выходов: PA4, PA5, PA6, PA7
+	const uint32_t output_pins[4] = {GPIO_Pin_4, GPIO_Pin_5, GPIO_Pin_6, GPIO_Pin_7};
 	
 	// Проверяем, что длина данных кратна 4 (стандартный формат OSDP)
 	if ((data_len % 4) != 0 || data_len < 4) {
@@ -390,7 +387,7 @@ static led_ctrl_t led_ctrl;
 void osdp_tick_1ms(void) // вызывается каждую мс из main.c
 {
 	// Обработка таймеров выходов OSDP
-	const uint32_t output_pins[4] = {GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15};
+	const uint32_t output_pins[4] = {GPIO_Pin_4, GPIO_Pin_5, GPIO_Pin_6, GPIO_Pin_7};
 	for (uint8_t i = 0; i < 4; i++) {
 		if (output_ctrl[i].temp_active && output_ctrl[i].timer_ms_left > 0) {
 			--output_ctrl[i].timer_ms_left;
@@ -670,7 +667,7 @@ void osdp_on_rx_byte(uint8_t byte) // парсер входящих байтов
 						if (should_reply) osdp_build_and_send_ack(seq);
 						break;
 					}
-					case osdp_OUT: {  // Обработка команды OUT (0x68)
+					case osdp_OUT: {
 						uint16_t data_len = (uint16_t)(rx_expected_len - 8);
 						uint8_t *data = &rx_buf[6];
 						handle_osdp_out(data, data_len);
