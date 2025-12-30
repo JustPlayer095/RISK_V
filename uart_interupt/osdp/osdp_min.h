@@ -23,7 +23,7 @@ enum {
 	osdp_COM     = 0x65,
 };
 
-void osdp_init(uint8_t device_address);
+void osdp_init(void);
 void osdp_on_rx_byte(uint8_t byte);
 // Вызывать раз в 1 мс (из таймера) для временного управления LED
 void osdp_tick_1ms(void);

@@ -11,7 +11,7 @@ static void gpio_init_spi_pins(void);
 
 
 #define EEPROM_CS_PORT GPIOB
-#define EEPROM_CS_PIN  GPIO_Pin_3
+#define EEPROM_CS_PIN  GPIO_Pin_1
 
 
 void eeprom_spi_cs_low(void)
@@ -40,8 +40,8 @@ static void spi0_init(void)
     RCU->SPICLKCFG[0].SPICLKCFG_bit.RSTDIS = 1;                                                                                    // Вывод из сброса
     SPI0->CPSR_bit.CPSDVSR = 8;                                                                                                    // Коэффициент деления первого делителя
     SPI0->CR0_bit.SCR = 1;                                                                                                         // Коэффициент деления второго делителя. Результирующий коэффициент SCK/((SCR+1)*CPSDVSR) 16/((1+1)*8)=1МГц
-    SPI0->CR0_bit.SPO = 1;                                                                                                         // Полярность сигнала. В режиме ожидания линия в состоянии логической единицы.
-    SPI0->CR0_bit.SPH = 1;                                                                                                         // Фаза: выборка на втором фронте (CPHA=1)
+    SPI0->CR0_bit.SPO = 0;                                                                                                         // Полярность сигнала. В режиме ожидания линия в состоянии логического нуля.
+    SPI0->CR0_bit.SPH = 0;                                                                                                         // Фаза: выборка на первом фронте (CPHA=0)
     SPI0->CR0_bit.FRF = 0;                                                                                                         // Выбор протокола обмена информацией 0-SPI
     SPI0->CR0_bit.DSS = 7;                                                                                                         // Размер слова данных 8 бит
     SPI0->CR1_bit.MS = 0;                                                                                                          // Режим работы - Мастер
@@ -57,15 +57,21 @@ static void spi0_init(void)
 
 static void gpio_init_spi_pins(void)
 {
-    // SPI0: SCK/MOSI/MISO на PB0/PB1/PB2 (AF1)
-    GPIOB->ALTFUNCSET = GPIO_ALTFUNCSET_PIN0_Msk |
-                        GPIO_ALTFUNCSET_PIN1_Msk |
-                        GPIO_ALTFUNCSET_PIN2_Msk |
-                        GPIO_ALTFUNCSET_PIN3_Msk;
+    GPIOB->ALTFUNCSET = GPIO_ALTFUNCSET_PIN0_Msk |  // SCK
+                        GPIO_ALTFUNCSET_PIN2_Msk |  // MISO (RX)
+                        GPIO_ALTFUNCSET_PIN3_Msk;   // MOSI (TX)
     GPIOB->ALTFUNCNUM = (GPIO_ALTFUNCNUM_PIN0_AF1 << GPIO_ALTFUNCNUM_PIN0_Pos) |
-                        (GPIO_ALTFUNCNUM_PIN1_AF1 << GPIO_ALTFUNCNUM_PIN1_Pos) |
-                        (GPIO_ALTFUNCNUM_PIN1_AF1 << GPIO_ALTFUNCNUM_PIN2_Pos) |
-                        (GPIO_ALTFUNCNUM_PIN2_AF1 << GPIO_ALTFUNCNUM_PIN3_Pos);
+                        (GPIO_ALTFUNCNUM_PIN2_AF1 << GPIO_ALTFUNCNUM_PIN2_Pos) |
+                        (GPIO_ALTFUNCNUM_PIN3_AF1 << GPIO_ALTFUNCNUM_PIN3_Pos);
+
+    // CS (PB1) как GPIO выход, держим в "1"
+    GPIO_Init_TypeDef gpio;
+    GPIO_StructInit(&gpio);
+    gpio.Out = ENABLE;
+    gpio.AltFunc = DISABLE;
+    gpio.Pin = EEPROM_CS_PIN;
+    GPIO_Init(EEPROM_CS_PORT, &gpio);
+    GPIO_SetBits(EEPROM_CS_PORT, EEPROM_CS_PIN);
 }
 
 uint8_t eeprom_spi_xfer(uint8_t byte)

@@ -34,6 +34,7 @@ static char g_adc_candidate_state = 'U';
 static uint32_t g_adc_candidate_ms = 0;
 static const uint32_t g_adc_state_confirm_ms = 50; // задержка подтверждения смены состояния
 static config_storage_t g_cfg;
+static volatile bool g_spi_status_req = false; // запрос на SPI чтение статуса
 static volatile bool g_spi_loopback_req = false; // запрос на SPI loopback (MOSI<->MISO)
 
 // Универсальные функции для инициализации GPIO
@@ -86,8 +87,7 @@ void periph_init()
   adcsar_init();
   eeprom_spi_init();
   UART4_init();
-  // Инициализация OSDP: 0xFF означает читать адрес из Flash памяти
-  osdp_init(0xFF);
+  osdp_init();
   gpio_init();
   tmr32_init();
   uart_irq_init();
@@ -97,31 +97,17 @@ void periph_init()
 
 static void cfg_store_and_report(void)
 {
-  // Сохранить пример конфига в EEPROM и сразу прочитать обратно
-  config_storage_default(&g_cfg);
-  g_cfg.osdp_addr = 0x01;    // пример адреса OSDP
-  g_cfg.osdp_baud = 115200;  // пример скорости
-  printf("CFG: start save/read\r\n");
-  // SPI тест с EEPROM: WREN + чтение статуса
-  uint8_t sr0 = eeprom_spi_read_status();
-  uint8_t sr1 = eeprom_spi_wren_and_status();
-  printf("SPI WREN test: SR0=0x%02X SR1=0x%02X\r\n", sr0, sr1);
-  printf("CFG: SR before save = 0x%02X\r\n", eeprom_spi_read_status());
-  config_storage_save(&g_cfg);
-  printf("CFG: SR after save  = 0x%02X\r\n", eeprom_spi_read_status());
-
-  if (config_storage_load(&g_cfg)) {
-    printf("CFG saved+read ok: addr=%u baud=%u\r\n", g_cfg.osdp_addr, (unsigned)g_cfg.osdp_baud);
-  } else {
-    printf("CFG read failed\r\n");
-    uint8_t raw[sizeof(config_storage_t)] = {0};
-    eeprom_spi_read_bytes(CONFIG_EEPROM_BASE, raw, sizeof(raw));
-    printf("CFG raw bytes (%u):", (unsigned)sizeof(raw));
-    for (size_t i = 0; i < sizeof(raw); ++i) {
-      printf(" %02X", raw[i]);
-    }
-    printf("\r\n");
+  // Пытаемся загрузить конфиг; если невалиден — пишем дефолтный и перезагружаем
+  if (!config_storage_load(&g_cfg)) {
+    printf("CFG invalid, writing defaults\r\n");
+    config_storage_default(&g_cfg);
+    config_storage_save(&g_cfg);
   }
+
+  // Финальное чтение для отчёта
+  uint8_t sr = eeprom_spi_read_status();
+  printf("CFG: SR = 0x%02X\r\n", sr);
+  printf("CFG active: addr=%u baud=%u\r\n", g_cfg.osdp_addr, (unsigned)g_cfg.osdp_baud);
 }
 
 //--- USER FUNCTIONS ----------------------------------------------------------------------
@@ -224,10 +210,6 @@ static void gpio_irq_handler(void)
           }
           g_btn_last_ms[i] = now;
           g_btn_last_state[i] = btn_current;
-          // Кнопка PA0 дополнительно инициирует SPI loopback-тест
-          if (i == 0) {
-            g_spi_loopback_req = true;
-          }
         }
       } else if (g_btn_last_state[i] == 0 && btn_current == 1) {
         // Кнопка отпущена (переход из 0 в 1)
@@ -287,13 +269,6 @@ int main(void)
 
   while(1)
   {
-    if (g_spi_loopback_req) {
-      g_spi_loopback_req = false;
-      uint8_t sr0 = eeprom_spi_read_status();
-      uint8_t sr1 = eeprom_spi_wren_and_status();
-      printf("SPI WREN test: SR0=0x%02X SR1=0x%02X\r\n", sr0, sr1);
-    }
-
     adcsar_sample_t sample;
     if (adcsar_poll(&sample)) {
       if (sample.state_char != g_adc_last_state) {
