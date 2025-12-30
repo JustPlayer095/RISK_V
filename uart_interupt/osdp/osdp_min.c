@@ -9,21 +9,27 @@
 #define OSDP_SOM 0x53
 #define OSDP_HEADER_LEN 8
 
-static const uint8_t __attribute__((section(".rodata.osdp_addr"))) osdp_addr_default = 0x01;
+#include "../config/config_storage.h"
 
-// Текущий адрес в RAM (копия из Flash для быстрого доступа)
+// Текущий адрес в RAM
 static uint8_t g_addr;
+static uint32_t g_baud;
 
-// Функция для получения адреса из Flash памяти
-static uint8_t osdp_get_addr_from_flash(void)
+static void osdp_load_addr_baud(void)
 {
-	// Читаем адрес из секции Flash (.rodata)
-	// Если адрес невалидный (0 или >0x7F), используем значение по умолчанию
-	uint8_t addr = osdp_addr_default;
-	if (addr <= 0 || addr > 0x7F) {
-		addr = 0x01; // Значение по умолчанию
+	config_storage_t cfg;
+	if (config_storage_load(&cfg)) {
+		if (cfg.osdp_addr > 0 && cfg.osdp_addr <= 0x7F) {
+			g_addr = cfg.osdp_addr;
+		} else {
+		 	g_addr = 0x01;
+		}
+		if (cfg.osdp_baud >= 9600 && cfg.osdp_baud <= 1000000) {
+			g_baud = cfg.osdp_baud;
+		} else {
+		    g_baud = 115200;
+		} 
 	}
-	return addr;
 }
 
 typedef enum {
@@ -156,6 +162,19 @@ static void osdp_build_and_send_com(uint8_t seq, uint8_t new_addr, uint32_t new_
 	tx[i++] = (uint8_t)((new_baud >> 16) & 0xFF);
 	tx[i++] = (uint8_t)((new_baud >> 24) & 0xFF);
 	osdp_build_crc_and_send(tx, i);
+
+	// Сохранить новые адрес и скорость в EEPROM
+	config_storage_t cfg;
+	if (!config_storage_load(&cfg)) {
+		config_storage_default(&cfg);
+	}
+	cfg.osdp_addr = (uint8_t)(new_addr & 0x7F);
+	cfg.osdp_baud = new_baud;
+	config_storage_save(&cfg);
+
+	// Обновить текущие значения в RAM
+	g_addr = cfg.osdp_addr;
+	g_baud = cfg.osdp_baud;
 }
 
 static void set_led_state(uint8_t on)
@@ -558,14 +577,9 @@ static void handle_osdp_led(uint8_t *data, uint16_t data_len)
 }
 
 
-void osdp_init(uint8_t device_address)
+void osdp_init(void)
 {
-	// Если передан адрес 0xFF, читаем из Flash, иначе используем переданный
-	if (device_address == 0xFF) {
-		g_addr = osdp_get_addr_from_flash();
-	} else {
-		g_addr = (uint8_t)(device_address & 0x7F);
-	}
+	osdp_load_addr_baud();
 	rx_state = st_wait_som;
 	rx_expected_len = 0;
 	rx_pos = 0;

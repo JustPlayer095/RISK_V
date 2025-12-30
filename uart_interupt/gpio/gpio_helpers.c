@@ -1,4 +1,5 @@
 #include "gpio_helpers.h"
+#include <stddef.h>
 
 void gpio_reset_pin(GPIO_TypeDef* GPIOx, uint32_t Pin)
 {
