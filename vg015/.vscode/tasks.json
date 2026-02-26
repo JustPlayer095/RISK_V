@@ -10,7 +10,7 @@
                 "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows",
                 "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\interface",
                 "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\target",
-                "-f", "./interface/jlink.cfg",
+                "-f", "./interface/onboard_ftdi.cfg",
                 "-f", "./target/k1921vg015.cfg",
                 "-c", "init;halt",
                 "-d1"

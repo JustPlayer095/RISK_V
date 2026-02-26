@@ -8,45 +8,46 @@
 #include "device/Include/plic.h"
 #include "plib/inc/plib015_gpio.h"
 #include "plib/inc/plib015_tmr32.h"
-#include "modules/osdp/osdp.h"
-#include "modules/adcsar/adcsar.h"
-#include "modules/driver/eeprom.h"
-#include "modules/config/config.h"
 #include "modules/gpio/gpio_helpers.h"
+#include "modules/calc/calc.h"
 
 //-- Defines -------------------------------------------------------------------
 #define UART4_BAUD  115200
 
+// Время последнего события для антидребезга кнопок
+static volatile uint32_t g_btn_last_ms[KEY_COUNT] = {0};
 
-// Состояния LED на PA4-PA7
-static volatile uint8_t led_state[4] = {0, 0, 0, 0}; // состояние светодиодов PA4-PA7 (0=выкл,1=вкл)
-
-// Время последнего события для антидребезга кнопок PA0-PA3
-static volatile uint32_t g_btn_last_ms[4] = {0, 0, 0, 0};
-
-// Предыдущее состояние кнопок PA0-PA3 (1=отпущена, 0=нажата)
-static volatile uint8_t g_btn_last_state[4] = {1, 1, 1, 1};
+// Предыдущее состояние кнопок (1=отпущена, 0=нажата)
+static volatile uint8_t g_btn_last_state[KEY_COUNT] = {
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+};
 
 static const uint32_t g_debounce_ms = 50; // время антидребезга в мс
 // Таймер 1 мс на TMR32: 
 volatile uint32_t ms_ticks = 0;
-static char g_adc_last_state = 'U';
-static char g_adc_candidate_state = 'U';
-static uint32_t g_adc_candidate_ms = 0;
-static const uint32_t g_adc_state_confirm_ms = 50; // задержка подтверждения смены состояния
-static config_storage_t g_cfg;
-static volatile bool g_spi_status_req = false; // запрос на SPI чтение статуса
-static volatile bool g_spi_loopback_req = false; // запрос на SPI loopback (MOSI<->MISO)
+
+// Таблица соответствия физических кнопок и логических действий калькулятора
+static GPIO_TypeDef* const g_btn_ports[KEY_COUNT] = {
+  GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB,
+  GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB
+};
+static const uint32_t g_btn_pins[KEY_COUNT] = {
+  GPIO_Pin_0,  GPIO_Pin_1,  GPIO_Pin_2,  GPIO_Pin_3,
+  GPIO_Pin_4,  GPIO_Pin_5,  GPIO_Pin_6,  GPIO_Pin_7,
+  GPIO_Pin_8,  GPIO_Pin_9,  GPIO_Pin_10, GPIO_Pin_11,
+  GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15
+};
+static const key_id_t g_btn_keys[KEY_COUNT] = {
+  KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7,
+  KEY_8, KEY_9, KEY_PLUS, KEY_MINUS, KEY_MUL, KEY_DIV, KEY_DEL, KEY_EQ
+};
 
 // Универсальные функции для инициализации GPIO
-static void uart4_irq_handler(void);
 static void gpio_irq_handler(void);
-static void uart_irq_init(void);
 static void gpio_init(void);
 static void gpio_irq_init(void);
 static void tmr32_init(void);
 static void tmr32_irq_handler(void);
-static void cfg_store_and_report(void);
 
 void UART4_init()
 {
@@ -84,96 +85,28 @@ void periph_init()
   SystemInit();
   SystemCoreClockUpdate();
   retarget_init();
-  adcsar_init();
-  eeprom_init();
   gpio_init();
   tmr32_init();
-  uart_irq_init();
   gpio_irq_init();
   InterruptEnable();
-  osdp_init();
-  cfg_store_and_report();
-  adcsar_start();
-}
-
-static void cfg_store_and_report(void)
-{
-  // Пытаемся загрузить конфиг; если невалиден — пишем дефолтный и перезагружаем
-  //if (!config_storage_load(&g_cfg)) {
-  printf("CFG invalid, writing defaults\r\n");
-  config_storage_default(&g_cfg);
-  config_storage_save(&g_cfg);
-  //}
-
-  printf("CFG active: addr=%u baud=%u\r\n", g_cfg.osdp_addr, (unsigned)g_cfg.osdp_baud);
 }
 
 //--- USER FUNCTIONS ----------------------------------------------------------------------
 
-// Инициализация прерываний UART4 и регистрация обработчика в PLIC
-static void uart_irq_init(void)
-{
-  // Очистить возможные висящие флаги прерываний
-  RETARGET_UART->ICR = UART_ICR_RXIC_Msk |
-                       UART_ICR_RTIC_Msk |
-                       UART_ICR_OEIC_Msk |
-                       UART_ICR_FEIC_Msk |
-                       UART_ICR_PEIC_Msk |
-                       UART_ICR_BEIC_Msk;
-
-  // Включить источники прерываний по приёму и таймауту
-  RETARGET_UART->IMSC |= (UART_IMSC_RXIM_Msk |
-                          UART_IMSC_RTIM_Msk |
-                          UART_IMSC_OERIM_Msk |
-                          UART_IMSC_FERIM_Msk |
-                          UART_IMSC_PERIM_Msk |
-                          UART_IMSC_BERIM_Msk);
-
-  // Зарегистрировать обработчик в PLIC и включить линию прерываний UART4
-  PLIC_SetPriority(PLIC_UART4_VECTNUM, 1);
-  PLIC_SetIrqHandler(Plic_Mach_Target, PLIC_UART4_VECTNUM, uart4_irq_handler);
-  PLIC_IntEnable(Plic_Mach_Target, PLIC_UART4_VECTNUM);
-}
-
-// Обработчик прерывания UART4 (через PLIC)
-static void uart4_irq_handler(void)
-{
-  while (!RETARGET_UART->FR_bit.RXFE) {
-    uint8_t ch = (uint8_t)RETARGET_UART->DR_bit.DATA;
-    osdp_on_rx_byte(ch);
-  }
-
-  // Очистить флаги источников прерываний
-  RETARGET_UART->ICR = UART_ICR_RXIC_Msk |
-                       UART_ICR_RTIC_Msk |
-                       UART_ICR_OEIC_Msk |
-                       UART_ICR_FEIC_Msk |
-                       UART_ICR_PEIC_Msk |
-                       UART_ICR_BEIC_Msk;
-}
-
-
 static void gpio_init(void)
 {
-  // Включить тактирование GPIOA
-  RCU->CGCFGAHB_bit.GPIOAEN = 1;
-  RCU->RSTDISAHB_bit.GPIOAEN = 1;
-
-  // LED на PA4-PA7 (начальное состояние: все выключены)
-  gpio_init_output(GPIOA, GPIO_Pin_4, 0);
-  gpio_init_output(GPIOA, GPIO_Pin_5, 0);
-  gpio_init_output(GPIOA, GPIO_Pin_6, 0);
-  gpio_init_output(GPIOA, GPIO_Pin_7, 0);
+  // Кнопки все на GPIOB
+  RCU->CGCFGAHB_bit.GPIOBEN = 1;
+  RCU->RSTDISAHB_bit.GPIOBEN = 1;
 }
 
 // Инициализация прерываний GPIO для кнопок
 static void gpio_irq_init(void)
 {
-  // Кнопки PA0-PA3
-  gpio_init_input_irq(GPIOA, GPIO_Pin_0, GPIO_PullMode_PU, &g_btn_last_state[0]);
-  gpio_init_input_irq(GPIOA, GPIO_Pin_1, GPIO_PullMode_PU, &g_btn_last_state[1]);
-  gpio_init_input_irq(GPIOA, GPIO_Pin_2, GPIO_PullMode_PU, &g_btn_last_state[2]);
-  gpio_init_input_irq(GPIOA, GPIO_Pin_3, GPIO_PullMode_PU, &g_btn_last_state[3]);
+  // Кнопки калькулятора: 10 цифр + 4 операции + Del + "="
+  for (uint8_t i = 0; i < KEY_COUNT; i++) {
+    gpio_init_input_irq(g_btn_ports[i], g_btn_pins[i], GPIO_PullMode_PU, &g_btn_last_state[i]);
+  }
   
   // Зарегистрировать обработчик в PLIC и включить линию прерываний GPIO
   PLIC_SetPriority(PLIC_GPIO_VECTNUM, 1);
@@ -188,27 +121,17 @@ static void gpio_irq_init(void)
 static void gpio_irq_handler(void)
 {
   uint32_t now = ms_ticks;
-  
-  const uint32_t btn_pins[4] = {GPIO_Pin_0, GPIO_Pin_1, GPIO_Pin_2, GPIO_Pin_3};
-  const uint32_t led_pins[4] = {GPIO_Pin_4, GPIO_Pin_5, GPIO_Pin_6, GPIO_Pin_7};
-  
-  // Обработка всех 4 кнопок PA0-PA3
-  for (uint8_t i = 0; i < 4; i++) {
-    if (GPIO_ITStatus(GPIOA, btn_pins[i]) == SET) {
-      uint8_t btn_current = GPIO_ReadBit(GPIOA, btn_pins[i]) ? 1 : 0;
-      
+
+  for (uint8_t i = 0; i < KEY_COUNT; i++) {
+    if (GPIO_ITStatus(g_btn_ports[i], g_btn_pins[i]) == SET) {
+      uint8_t btn_current = GPIO_ReadBit(g_btn_ports[i], g_btn_pins[i]) ? 1 : 0;
+
       if (g_btn_last_state[i] == 1 && btn_current == 0) {
         // Кнопка нажата (переход из 1 в 0)
         if ((now - g_btn_last_ms[i]) >= g_debounce_ms) {
-          // Переключаем состояние соответствующего LED (PA4-PA7)
-          led_state[i] ^= 1u;
-          if (led_state[i]) {
-            GPIO_SetBits(GPIOA, led_pins[i]);
-            printf("LED%d ON (PA%d)\r\n", i+1, i+4);
-          } else {
-            GPIO_ClearBits(GPIOA, led_pins[i]);
-            printf("LED%d OFF (PA%d)\r\n", i+1, i+4);
-          }
+          // Сразу передаём событие в модуль калькулятора
+          on_key_pressed(g_btn_keys[i]);
+
           g_btn_last_ms[i] = now;
           g_btn_last_state[i] = btn_current;
         }
@@ -220,7 +143,7 @@ static void gpio_irq_handler(void)
         }
       }
       
-      GPIO_ITStatusClear(GPIOA, btn_pins[i]);
+      GPIO_ITStatusClear(g_btn_ports[i], g_btn_pins[i]);
     }
   }
 }
@@ -241,7 +164,7 @@ static void tmr32_init(void)
   TMR32_SetCounter(0);
 
   // Прерывание по переполнению таймера (обновление)
-  TMR32_ITCmd(TMR32_IT_TimerUpdate, ENABLE);
+  TMR32_ITCmd(TMR32_IT_CAPCOM_0, ENABLE);
 
   // Регистрация обработчика в PLIC
   PLIC_SetPriority(PLIC_TMR32_VECTNUM, 1);
@@ -253,11 +176,8 @@ static void tmr32_irq_handler(void)
 {
   // Инкремент тиков, сброс флага
   ms_ticks++;
-  // 1 мс тик для OSDP (временное управление LED)
-  osdp_tick_1ms();
-  TMR32_ITClear(TMR32_IT_TimerUpdate);
+  TMR32_ITClear(TMR32_IT_CAPCOM_0);
 }
-
 
 
 
@@ -265,26 +185,6 @@ static void tmr32_irq_handler(void)
 int main(void)
 {
   periph_init();
-  
-  while(1)
-  {
-    adcsar_sample_t sample;
-    if (adcsar_poll(&sample)) {
-      if (sample.state_char != g_adc_last_state) {
-        if (g_adc_candidate_state != sample.state_char) {
-          g_adc_candidate_state = sample.state_char;
-          g_adc_candidate_ms = ms_ticks;
-        } else if ((ms_ticks - g_adc_candidate_ms) >= g_adc_state_confirm_ms) {
-          printf("ADC state: %c\r\n", sample.state_char);
-          g_adc_last_state = sample.state_char;
-        }
-      } else {
-        g_adc_candidate_state = sample.state_char;
-        g_adc_candidate_ms = ms_ticks;
-      }
-    }
-    __asm volatile("wfi");
-  }
 
   return 0;
 }
