@@ -185,6 +185,9 @@ static void tmr32_irq_handler(void)
 int main(void)
 {
   periph_init();
-
+  while(1)
+  {
+    __asm volatile("wfi");
+  }
   return 0;
 }
