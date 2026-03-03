@@ -82,7 +82,7 @@ header:
 	
 %.elf: $(OBJS)
 	@ echo "LINK "$^"" 
-	$(CROSS_PREFIX)g++ -o $@ $(foreach obj, $(OBJS), $(BUILD_PATH)/$(obj)) -static -march=$(MARCH) -mabi=$(MABI) -g -ggdb3 -std=gnu99 $(LD_FLAGS) -nostartfiles -T ./device/ldscripts/k1921vg015_flash.ld
+	$(CROSS_PREFIX)g++ -o $@ $(foreach obj, $(OBJS), $(BUILD_PATH)/$(obj)) -static -march=$(MARCH) -mabi=$(MABI) -g -ggdb3 -std=gnu99 $(LD_FLAGS) -nostartfiles -T ./device/ldscripts/k1921vg015_flash_bl.ld
 	@ echo "...DONE" 
 	
 %.dump: %.elf
