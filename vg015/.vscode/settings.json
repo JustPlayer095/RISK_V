@@ -8,10 +8,10 @@
     ],
     "C_Cpp.default.includePath": [
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\bsp",
+        "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\device\\include",
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\calc",
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\driver",
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\gpio",
-        "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\device\\include",
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\plib\\inc"
     ],
     "files.associations": {
