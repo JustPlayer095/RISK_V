@@ -1,0 +1,22 @@
+/** @file
+*  @brief linker script template for K1921VG015 bootloader image
+*/
+
+OUTPUT_ARCH("riscv")
+ENTRY(_start)
+
+MEMORY {
+  ROM_BL (rwx) : ORIGIN = 0x80000000, LENGTH = 8K
+  RAM0   (rwx) : ORIGIN = 0x40000000, LENGTH = 256K
+  RAM1   (rwx) : ORIGIN = 0x10000000, LENGTH = 64K
+}
+
+REGION_ALIAS("REGION_TEXT",   ROM_BL);
+REGION_ALIAS("REGION_RODATA", ROM_BL);
+REGION_ALIAS("REGION_DATA",   RAM0);
+REGION_ALIAS("REGION_BSS",    RAM0);
+REGION_ALIAS("REGION_STACK",  RAM0);
+
+STACK_SIZE = 2048;
+
+INCLUDE "../vg015/device/ldscripts/k1921vg015_common.lds"

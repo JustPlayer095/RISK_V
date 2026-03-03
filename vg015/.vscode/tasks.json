@@ -38,6 +38,52 @@
                 "reveal": "silent", 
                 "panel": "dedicated"
             }
+        },
+        {
+            "label": "build-bootloader",
+            "type": "shell",
+            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\make.exe",
+            "args": [
+                "all",
+                "COMPILER_PATH=C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin",
+                "PREFIX=riscv64-unknown-elf-",
+                "MARCH=rv32imfc_zicsr",
+                "MABI=ilp32f",
+                "OPTIMISATION=-O0"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/../bootloader"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "flash-bootloader",
+            "type": "shell",
+            "dependsOn": [
+                "start-openocd",
+                "build-bootloader"
+            ],
+            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_gcc_windows\\bin\\riscv64-unknown-elf-gdb.exe",
+            "args": [
+                "c:/_WORKSPACE/WORKPROJECT/bootloader/build/bootloader.elf",
+                "-iex=target extended-remote localhost:3333",
+                "-ex=monitor reset halt",
+                "-ex=load",
+                "-ex=monitor reset halt",
+                "-ex=quit"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/../bootloader"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
         }
     ]
 }
