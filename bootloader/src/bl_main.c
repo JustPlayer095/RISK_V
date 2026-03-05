@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* Internal marker: no header received yet, keep waiting in update loop. */
+#define BL_INTERNAL_NO_HEADER          (-1)
+
 static void bl_proto_send(uint8_t code) {
     bl_hal_uart_putc(code);
 }
@@ -25,6 +28,8 @@ static int bl_flash_program_image(const bl_app_header_t* hdr) {
     if (!bl_hal_flash_erase_range(APP_HEADER_ADDR, image_total)) {
         return (int)BL_PROTO_ERR_WAIT_ERASE_PAGE;
     }
+    /* Signal host only when flash is erased and payload can be received. */
+    bl_proto_send(BL_PROTO_REPLY_ACK);
 
     left = hdr->image_size;
     wr_addr = APP_PAYLOAD_ADDR;
@@ -49,8 +54,7 @@ static int bl_flash_program_image(const bl_app_header_t* hdr) {
 }
 
 static int bl_update_requested(void) {
-    /* TODO: add button/flag/UART request logic with timeout. */
-    return 0;
+    return bl_hal_is_update_button_pressed() ? 1 : 0;
 }
 
 static int bl_receive_and_program(void) {
@@ -58,14 +62,12 @@ static int bl_receive_and_program(void) {
     int rc;
 
     if (!bl_proto_receive_header(BL_UPDATE_WAIT_TIMEOUT_MS, &hdr)) {
-        return (int)BL_PROTO_ERR_RECEIVE;
+        return BL_INTERNAL_NO_HEADER;
     }
 
     if (!bl_image_header_is_valid(&hdr)) {
         return (int)BL_PROTO_ERR_TOO_BIG;
     }
-
-    bl_proto_send(BL_PROTO_REPLY_ACK);
 
     rc = bl_flash_program_image(&hdr);
     if (rc != 0) {
@@ -81,12 +83,25 @@ static int bl_receive_and_program(void) {
 
 static void bl_enter_update_mode(void) {
     int rc;
+    uint32_t i;
 
+    bl_hal_set_update_mode_leds(true);
     for (;;) {
         bl_proto_send(BL_PROTO_REPLY_WAITING);
         rc = bl_receive_and_program();
+        if (rc == BL_INTERNAL_NO_HEADER) {
+            continue;
+        }
         if (rc == 0) {
-            bl_proto_send(BL_PROTO_REPLY_ACK);
+            /* Send final ACK a few times so host catches it before jump. */
+            for (i = 0u; i < 4u; ++i) {
+                bl_proto_send(BL_PROTO_REPLY_ACK);
+                bl_hal_uart_wait_tx_idle();
+            }
+            for (i = 0u; i < 200000u; ++i) {
+                __asm__ volatile ("nop");
+            }
+            bl_hal_set_update_mode_leds(false);
             bl_jump_to_app(APP_ENTRY_ADDR);
         }
         bl_proto_send((uint8_t)rc);
@@ -102,6 +117,7 @@ int main(void) {
     }
 
     if (bl_image_is_valid()) {
+        bl_hal_set_update_mode_leds(false);
         bl_jump_to_app(APP_ENTRY_ADDR);
     }
 

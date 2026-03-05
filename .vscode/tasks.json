@@ -4,7 +4,7 @@
         {
             "label": "start-openocd",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\openocd.exe", 
+            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\openocd.exe",
             "args": [
                 "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows",
                 "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\interface",
@@ -15,9 +15,9 @@
                 "-d1"
             ],
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}/vg015"
             },
-            "isBackground": true, 
+            "isBackground": true,
             "problemMatcher": {
                 "pattern": [
                     {
@@ -30,11 +30,11 @@
                 "background": {
                     "activeOnStart": true,
                     "beginsPattern": "Open On-Chip Debugger",
-                    "endsPattern": "for telnet connections" 
+                    "endsPattern": "for telnet connections"
                 }
             },
             "presentation": {
-                "reveal": "silent", 
+                "reveal": "silent",
                 "panel": "dedicated"
             }
         },
@@ -51,7 +51,7 @@
                 "OPTIMISATION=-O0"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/../bootloader",
+                "cwd": "${workspaceFolder}/bootloader",
                 "shell": {
                     "executable": "C:\\Windows\\System32\\cmd.exe",
                     "args": [
@@ -83,7 +83,7 @@
                 "OPTIMISATION=-O0"
             ],
             "options": {
-                "cwd": "${workspaceFolder}",
+                "cwd": "${workspaceFolder}/vg015",
                 "shell": {
                     "executable": "C:\\Windows\\System32\\cmd.exe",
                     "args": [
@@ -107,7 +107,7 @@
             "type": "shell",
             "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_gcc_windows\\bin\\riscv64-unknown-elf-gdb.exe",
             "args": [
-                "${workspaceFolder}/../bootloader/build/bootloader.elf",
+                "${workspaceFolder}/bootloader/build/bootloader.elf",
                 "-q",
                 "-batch",
                 "-ex=set confirm off",
@@ -119,7 +119,7 @@
                 "-ex=quit"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/../bootloader"
+                "cwd": "${workspaceFolder}/bootloader"
             },
             "dependsOn": [
                 "start-openocd",
@@ -149,8 +149,8 @@
                 "ihex",
                 "-O",
                 "binary",
-                "${workspaceFolder}/build/vg015.hex",
-                "${workspaceFolder}/build/vg015.bin"
+                "${workspaceFolder}/vg015/build/vg015.hex",
+                "${workspaceFolder}/vg015/build/vg015.bin"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -166,18 +166,18 @@
             "type": "shell",
             "command": "python",
             "args": [
-                "${workspaceFolder}/../bootloader/boot.py",
+                "${workspaceFolder}/bootloader/boot.py",
                 "--port",
                 "COM6",
                 "--bin",
-                "${workspaceFolder}/build/vg015.bin",
+                "${workspaceFolder}/vg015/build/vg015.bin",
                 "--baud",
                 "115200",
                 "--timeout",
                 "30"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/../bootloader"
+                "cwd": "${workspaceFolder}"
             },
             "presentation": {
                 "reveal": "always",

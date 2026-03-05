@@ -7,7 +7,7 @@ TARGET_NAME ?= vg015
 	
 COMPILER_PATH ?=
 ADDITIONAL_FLAGS ?=
-DEFINES ?= -DRETARGET
+DEFINES ?= -DRETARGET -DHSECLK_VAL=16000000 -DSYSCLK_PLL -DCKO_PLL0
 PREFIX ?= 
 	
 LINKER_PATH  		?=
@@ -82,7 +82,7 @@ header:
 	
 %.elf: $(OBJS)
 	@ echo "LINK "$^"" 
-	$(CROSS_PREFIX)g++ -o $@ $(foreach obj, $(OBJS), $(BUILD_PATH)/$(obj)) -static -march=$(MARCH) -mabi=$(MABI) -g -ggdb3 -std=gnu99 $(LD_FLAGS) -nostartfiles -T ./device/ldscripts/k1921vg015_flash_bl.ld
+	$(CROSS_PREFIX)g++ -o $@ $(foreach obj, $(OBJS), $(BUILD_PATH)/$(obj)) -static -march=$(MARCH) -mabi=$(MABI) -g -ggdb3 -std=gnu99 $(LD_FLAGS) -L./device/ldscripts -nostartfiles -T ./device/ldscripts/k1921vg015_flash_bl.ld
 	@ echo "...DONE" 
 	
 %.dump: %.elf
