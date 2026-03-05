@@ -1,4 +1,4 @@
-#include "bl_crc32.h"
+#include "../include/bl_crc32.h"
 
 /* CRC-32 (poly 0x04C11DB7), non-reflected, init=0xFFFFFFFF, xorout=0xFFFFFFFF. */
 uint32_t bl_crc32_calc(const uint8_t* data, uint32_t len) {

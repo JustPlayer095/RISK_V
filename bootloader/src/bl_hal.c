@@ -17,6 +17,7 @@
 #define BL_UPDATE_LED_PORT             (GPIOA)
 #define BL_UPDATE_LED_MASK             (((uint32_t)1u << 12) | ((uint32_t)1u << 13) | ((uint32_t)1u << 14) | ((uint32_t)1u << 15))
 
+/* Ожидает снятия флага busy у flash до готовности или исчерпания таймаута. */
 static bool bl_flash_wait_ready(uint32_t loops) {
     while (loops > 0u) {
         if ((FLASH->STAT & FLASH_STAT_BUSY_Msk) == 0u) {
@@ -27,16 +28,19 @@ static bool bl_flash_wait_ready(uint32_t loops) {
     return false;
 }
 
+/* Преобразует абсолютный flash-адрес в смещение для контроллера flash. */
 static uint32_t bl_flash_offs(uint32_t abs_addr) {
     return (abs_addr - MEM_FLASH_BASE);
 }
 
+/* Стирает одну страницу flash, содержащую указанный абсолютный адрес. */
 static bool bl_flash_erase_page(uint32_t abs_addr) {
     FLASH->ADDR = bl_flash_offs(abs_addr);
     FLASH->CMD = ((uint32_t)FLASH_CMD_KEY_Access << FLASH_CMD_KEY_Pos) | FLASH_CMD_ERSEC_Msk;
     return bl_flash_wait_ready(BL_FLASH_WAIT_ERASE_LOOPS);
 }
 
+/* Программирует один 16-байтный блок flash через регистры данных контроллера. */
 static bool bl_flash_write16(uint32_t abs_addr, const uint8_t* data, uint32_t len) {
     uint8_t tmp[16];
     uint32_t word0;
@@ -66,6 +70,7 @@ static bool bl_flash_write16(uint32_t abs_addr, const uint8_t* data, uint32_t le
     return bl_flash_wait_ready(BL_FLASH_WAIT_WRITE_LOOPS);
 }
 
+/* Читает один 16-байтный блок напрямую из отображенной flash-памяти. */
 static bool bl_flash_read_block16(uint32_t abs_addr, uint8_t* out_block) {
     const volatile uint8_t* flash_ptr;
     uint32_t i;
@@ -81,11 +86,12 @@ static bool bl_flash_read_block16(uint32_t abs_addr, uint8_t* out_block) {
     return true;
 }
 
+/* Инициализирует UART, вход кнопки обновления и статусные светодиоды. */
 void bl_hal_init(void) {
     uint32_t ibrd;
     uint32_t fbrd;
 
-    /* UART4 pins: PA8 RX, PA9 TX (same route as main app). */
+    /* UART4 pins: PA8 RX, PA9 TX */
     RCU->CGCFGAHB_bit.GPIOAEN = 1;
     RCU->RSTDISAHB_bit.GPIOAEN = 1;
     GPIOA->ALTFUNCNUM_bit.PIN8 = 1;
@@ -124,12 +130,14 @@ void bl_hal_init(void) {
     BL_UPDATE_LED_PORT->DATAOUTCLR = BL_UPDATE_LED_MASK;
 }
 
+/* Отправляет один байт через UART загрузчика  */
 void bl_hal_uart_putc(uint8_t byte) {
     while (UART4->FR_bit.TXFE == 0u) {
     }
     UART4->DR = byte;
 }
 
+/* Ожидает, пока передатчик UART и FIFO перейдут в состояние idle. */
 void bl_hal_uart_wait_tx_idle(void) {
     uint32_t loops = 200000u;
     while (loops > 0u) {
@@ -140,6 +148,7 @@ void bl_hal_uart_wait_tx_idle(void) {
     }
 }
 
+/* Принимает фиксированное число байт с простым таймаутом по циклам. */
 bool bl_hal_uart_get(uint8_t* dst, uint32_t len, uint32_t timeout_ms) {
     uint32_t loops;
     uint32_t left = len;
@@ -162,10 +171,12 @@ bool bl_hal_uart_get(uint8_t* dst, uint32_t len, uint32_t timeout_ms) {
     return (left == 0u);
 }
 
+/* Читает состояние кнопки обновления (активный низкий уровень). */
 bool bl_hal_is_update_button_pressed(void) {
     return ((BL_UPDATE_BTN_PORT->DATA & BL_UPDATE_BTN_MASK) == 0u);
 }
 
+/* Включает или выключает группу светодиодов режима обновления. */
 void bl_hal_set_update_mode_leds(bool on) {
     if (on) {
         BL_UPDATE_LED_PORT->DATAOUTSET = BL_UPDATE_LED_MASK;
@@ -174,6 +185,7 @@ void bl_hal_set_update_mode_leds(bool on) {
     }
 }
 
+/* Стирает все страницы flash, пересекающиеся с заданным диапазоном адресов. */
 bool bl_hal_flash_erase_range(uint32_t abs_addr, uint32_t size_bytes) {
     uint32_t start;
     uint32_t end;
@@ -194,6 +206,7 @@ bool bl_hal_flash_erase_range(uint32_t abs_addr, uint32_t size_bytes) {
     return true;
 }
 
+/* Записывает данные произвольной длины во flash через 16-байтные RMW-блоки. */
 bool bl_hal_flash_write(uint32_t abs_addr, const uint8_t* data, uint32_t len) {
     uint32_t addr = abs_addr;
     const uint8_t* src = data;
