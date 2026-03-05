@@ -40,9 +40,17 @@ def read_byte(ser: serial.Serial, timeout_s: float, what: str) -> int:
 
 
 def expect(ser: serial.Serial, expected: int, timeout_s: float, what: str):
-    got = read_byte(ser, timeout_s, what)
-    if got != expected:
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        got = read_byte(ser, timeout_s, what)
+        # Bootloader can keep sending WAITING while entering RX state.
+        # Ignore extra WAITING bytes when we already expect ACK.
+        if expected == BL_ACK and got == BL_WAITING:
+            continue
+        if got == expected:
+            return
         raise RuntimeError(f"{what}: expected 0x{expected:02X}, got 0x{got:02X}")
+    raise TimeoutError(f"Timeout waiting for {what}")
 
 
 def explain_error(code: int) -> str:
@@ -62,7 +70,7 @@ def main():
     p.add_argument("--bin", required=True, help="Path to application .bin")
     p.add_argument("--baud", type=int, default=460800)
     p.add_argument("--chunk", type=int, default=256)
-    p.add_argument("--timeout", type=float, default=5.0)
+    p.add_argument("--timeout", type=float, default=30.0)
     p.add_argument("--wait-boot", type=float, default=15.0, help="Max time waiting for BL_WAITING")
     args = p.parse_args()
 

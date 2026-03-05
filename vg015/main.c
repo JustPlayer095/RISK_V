@@ -265,7 +265,7 @@ static void tmr32_irq_handler(void)
 int main(void)
 {
   periph_init();
-  
+  printf("Hello, World5!\r\n");
   while(1)
   {
     adcsar_sample_t sample;

@@ -2,11 +2,20 @@
 
 #include "../../vg015/device/include/K1921VG015.h"
 
-#define BL_UART_BAUDRATE               ((uint32_t)460800u)
-#define BL_UART_CLOCK_HZ               ((uint32_t)50000000u)
+#define BL_UART_BAUDRATE               ((uint32_t)115200u)
+#ifdef HSECLK_VAL
+#define BL_UART_CLOCK_HZ               ((uint32_t)HSECLK_VAL)
+#else
+#define BL_UART_CLOCK_HZ               ((uint32_t)16000000u)
+#endif
 #define BL_FLASH_WAIT_ERASE_LOOPS      ((uint32_t)2000000u)
 #define BL_FLASH_WAIT_WRITE_LOOPS      ((uint32_t)200000u)
+#define BL_FLASH_ERASE_SIZE_BYTES      ((uint32_t)4096u)
 #define BL_UART_TIMEOUT_LOOPS_PER_MS   ((uint32_t)2000u)
+#define BL_UPDATE_BTN_PORT             (GPIOC)
+#define BL_UPDATE_BTN_MASK             ((uint32_t)1u << 0)
+#define BL_UPDATE_LED_PORT             (GPIOA)
+#define BL_UPDATE_LED_MASK             (((uint32_t)1u << 12) | ((uint32_t)1u << 13) | ((uint32_t)1u << 14) | ((uint32_t)1u << 15))
 
 static bool bl_flash_wait_ready(uint32_t loops) {
     while (loops > 0u) {
@@ -57,36 +66,78 @@ static bool bl_flash_write16(uint32_t abs_addr, const uint8_t* data, uint32_t le
     return bl_flash_wait_ready(BL_FLASH_WAIT_WRITE_LOOPS);
 }
 
+static bool bl_flash_read_block16(uint32_t abs_addr, uint8_t* out_block) {
+    const volatile uint8_t* flash_ptr;
+    uint32_t i;
+
+    if (out_block == 0) {
+        return false;
+    }
+
+    flash_ptr = (const volatile uint8_t*)(uintptr_t)abs_addr;
+    for (i = 0u; i < 16u; ++i) {
+        out_block[i] = flash_ptr[i];
+    }
+    return true;
+}
+
 void bl_hal_init(void) {
     uint32_t ibrd;
     uint32_t fbrd;
 
-    /* UART0 pins: PA0 RX, PA1 TX */
+    /* UART4 pins: PA8 RX, PA9 TX (same route as main app). */
     RCU->CGCFGAHB_bit.GPIOAEN = 1;
     RCU->RSTDISAHB_bit.GPIOAEN = 1;
-    GPIOA->PULLMODE &= ~(GPIO_PULLMODE_PIN0_Msk | GPIO_PULLMODE_PIN1_Msk);
-    GPIOA->ALTFUNCNUM_bit.PIN0 = 1;
-    GPIOA->ALTFUNCNUM_bit.PIN1 = 1;
-    GPIOA->ALTFUNCSET_bit.PIN0 = 1;
-    GPIOA->ALTFUNCSET_bit.PIN1 = 1;
+    GPIOA->ALTFUNCNUM_bit.PIN8 = 1;
+    GPIOA->ALTFUNCNUM_bit.PIN9 = 1;
+    GPIOA->ALTFUNCSET = GPIO_ALTFUNCSET_PIN8_Msk | GPIO_ALTFUNCSET_PIN9_Msk;
 
-    RCU->CGCFGAPB_bit.UART0EN = 1;
-    RCU->RSTDISAPB_bit.UART0EN = 1;
-    RCU->UARTCLKCFG[0].UARTCLKCFG = RCU_UARTCLKCFG_CLKEN_Msk | (RCU_UARTCLKCFG_CLKSEL_PLL0 << RCU_UARTCLKCFG_CLKSEL_Pos);
-    RCU->UARTCLKCFG[0].UARTCLKCFG_bit.RSTDIS = 1;
+    RCU->CGCFGAPB_bit.UART4EN = 1;
+    RCU->RSTDISAPB_bit.UART4EN = 1;
+    RCU->UARTCLKCFG[4].UARTCLKCFG_bit.CLKSEL = RCU_UARTCLKCFG_CLKSEL_HSE;
+    RCU->UARTCLKCFG[4].UARTCLKCFG_bit.DIVEN = 0;
+    RCU->UARTCLKCFG[4].UARTCLKCFG_bit.RSTDIS = 1;
+    RCU->UARTCLKCFG[4].UARTCLKCFG_bit.CLKEN = 1;
 
     ibrd = BL_UART_CLOCK_HZ / (16u * BL_UART_BAUDRATE);
     fbrd = ((BL_UART_CLOCK_HZ - (ibrd * 16u * BL_UART_BAUDRATE)) << 6) / (16u * BL_UART_BAUDRATE);
-    UART0->IBRD = ibrd;
-    UART0->FBRD = fbrd;
-    UART0->LCRH = UART_LCRH_FEN_Msk | (UART_LCRH_WLEN_8bit << UART_LCRH_WLEN_Pos);
-    UART0->CR = UART_CR_RXE_Msk | UART_CR_TXE_Msk | UART_CR_UARTEN_Msk;
+    UART4->IBRD = ibrd;
+    UART4->FBRD = fbrd;
+    UART4->LCRH = UART_LCRH_FEN_Msk | (UART_LCRH_WLEN_8bit << UART_LCRH_WLEN_Pos);
+    UART4->IFLS = 0;
+    UART4->CR = UART_CR_RXE_Msk | UART_CR_TXE_Msk | UART_CR_UARTEN_Msk;
+
+    /* Update button: PC0 with pull-up, active low. */
+    RCU->CGCFGAHB_bit.GPIOCEN = 1;
+    RCU->RSTDISAHB_bit.GPIOCEN = 1;
+    BL_UPDATE_BTN_PORT->PULLMODE_bit.PIN0 = 1;
+    BL_UPDATE_BTN_PORT->ALTFUNCCLR = BL_UPDATE_BTN_MASK;
+    BL_UPDATE_BTN_PORT->OUTENCLR = BL_UPDATE_BTN_MASK;
+
+    /* Update LEDs: PA12..PA15 as GPIO outputs, default off. */
+    BL_UPDATE_LED_PORT->ALTFUNCCLR = BL_UPDATE_LED_MASK;
+    BL_UPDATE_LED_PORT->OUTMODE_bit.PIN12 = GPIO_OUTMODE_PIN12_PP;
+    BL_UPDATE_LED_PORT->OUTMODE_bit.PIN13 = GPIO_OUTMODE_PIN13_PP;
+    BL_UPDATE_LED_PORT->OUTMODE_bit.PIN14 = GPIO_OUTMODE_PIN14_PP;
+    BL_UPDATE_LED_PORT->OUTMODE_bit.PIN15 = GPIO_OUTMODE_PIN15_PP;
+    BL_UPDATE_LED_PORT->OUTENSET = BL_UPDATE_LED_MASK;
+    BL_UPDATE_LED_PORT->DATAOUTCLR = BL_UPDATE_LED_MASK;
 }
 
 void bl_hal_uart_putc(uint8_t byte) {
-    while (UART0->FR_bit.TXFE == 0u) {
+    while (UART4->FR_bit.TXFE == 0u) {
     }
-    UART0->DR = byte;
+    UART4->DR = byte;
+}
+
+void bl_hal_uart_wait_tx_idle(void) {
+    uint32_t loops = 200000u;
+    while (loops > 0u) {
+        if ((UART4->FR_bit.BUSY == 0u) && (UART4->FR_bit.TXFE != 0u)) {
+            break;
+        }
+        --loops;
+    }
 }
 
 bool bl_hal_uart_get(uint8_t* dst, uint32_t len, uint32_t timeout_ms) {
@@ -100,8 +151,8 @@ bool bl_hal_uart_get(uint8_t* dst, uint32_t len, uint32_t timeout_ms) {
 
     loops = timeout_ms * BL_UART_TIMEOUT_LOOPS_PER_MS;
     while (left > 0u && loops > 0u) {
-        if (UART0->FR_bit.RXFE == 0u) {
-            *wr++ = (uint8_t)UART0->DR;
+        if (UART4->FR_bit.RXFE == 0u) {
+            *wr++ = (uint8_t)UART4->DR;
             --left;
             loops = timeout_ms * BL_UART_TIMEOUT_LOOPS_PER_MS;
             continue;
@@ -109,6 +160,18 @@ bool bl_hal_uart_get(uint8_t* dst, uint32_t len, uint32_t timeout_ms) {
         --loops;
     }
     return (left == 0u);
+}
+
+bool bl_hal_is_update_button_pressed(void) {
+    return ((BL_UPDATE_BTN_PORT->DATA & BL_UPDATE_BTN_MASK) == 0u);
+}
+
+void bl_hal_set_update_mode_leds(bool on) {
+    if (on) {
+        BL_UPDATE_LED_PORT->DATAOUTSET = BL_UPDATE_LED_MASK;
+    } else {
+        BL_UPDATE_LED_PORT->DATAOUTCLR = BL_UPDATE_LED_MASK;
+    }
 }
 
 bool bl_hal_flash_erase_range(uint32_t abs_addr, uint32_t size_bytes) {
@@ -120,10 +183,10 @@ bool bl_hal_flash_erase_range(uint32_t abs_addr, uint32_t size_bytes) {
         return true;
     }
 
-    start = abs_addr & ~(MEM_FLASH_PAGE_SIZE - 1u);
-    end = (abs_addr + size_bytes + MEM_FLASH_PAGE_SIZE - 1u) & ~(MEM_FLASH_PAGE_SIZE - 1u);
+    start = abs_addr & ~(BL_FLASH_ERASE_SIZE_BYTES - 1u);
+    end = (abs_addr + size_bytes + BL_FLASH_ERASE_SIZE_BYTES - 1u) & ~(BL_FLASH_ERASE_SIZE_BYTES - 1u);
 
-    for (addr = start; addr < end; addr += MEM_FLASH_PAGE_SIZE) {
+    for (addr = start; addr < end; addr += BL_FLASH_ERASE_SIZE_BYTES) {
         if (!bl_flash_erase_page(addr)) {
             return false;
         }
@@ -135,7 +198,11 @@ bool bl_hal_flash_write(uint32_t abs_addr, const uint8_t* data, uint32_t len) {
     uint32_t addr = abs_addr;
     const uint8_t* src = data;
     uint32_t left = len;
+    uint32_t page_addr;
+    uint32_t page_off;
     uint32_t chunk;
+    uint32_t i;
+    uint8_t page_buf[16];
 
     if (data == 0) {
         return false;
@@ -145,8 +212,21 @@ bool bl_hal_flash_write(uint32_t abs_addr, const uint8_t* data, uint32_t len) {
     }
 
     while (left > 0u) {
-        chunk = (left >= 16u) ? 16u : left;
-        if (!bl_flash_write16(addr, src, chunk)) {
+        page_addr = addr & ~(uint32_t)0x0Fu;
+        page_off = addr & (uint32_t)0x0Fu;
+        chunk = 16u - page_off;
+        if (chunk > left) {
+            chunk = left;
+        }
+
+        if (!bl_flash_read_block16(page_addr, page_buf)) {
+            return false;
+        }
+        for (i = 0u; i < chunk; ++i) {
+            page_buf[page_off + i] = src[i];
+        }
+
+        if (!bl_flash_write16(page_addr, page_buf, 16u)) {
             return false;
         }
         addr += chunk;
