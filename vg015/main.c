@@ -1,11 +1,11 @@
 //-- Includes ------------------------------------------------------------------
-#include "device/Include/K1921VG015.h"
+#include "device/include/K1921VG015.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include "device/Include/system_k1921vg015.h"
-#include "device/Include/retarget.h"
-#include "device/Include/plic.h"
+#include "device/include/system_k1921vg015.h"
+#include "device/include/retarget.h"
+#include "device/include/plic.h"
 #include "plib/inc/plib015_gpio.h"
 #include "plib/inc/plib015_tmr32.h"
 #include "modules/osdp/osdp.h"

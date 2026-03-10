@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import serial
+from serial.tools import list_ports
 
 BL_WAITING = 0x01
 BL_ACK = 0x02
@@ -15,6 +16,7 @@ BL_ERR_RECEIVE = 0x04
 BL_ERR_CRC32 = 0x06
 BL_ERR_WAIT_WRITE_PAGE = 0x07
 BL_ERR_WAIT_ERASE_PAGE = 0x0B
+CH340_VID_PID = {(0x1A86, 0x7523), (0x1A86, 0x5523)}
 
 
 def crc32_bl(data: bytes) -> int:
@@ -64,9 +66,51 @@ def explain_error(code: int) -> str:
     return m.get(code, "UNKNOWN")
 
 
+def _port_sort_key(port_info):
+    dev = (port_info.device or "").upper()
+    if dev.startswith("COM"):
+        try:
+            return (0, int(dev[3:]))
+        except ValueError:
+            return (1, dev)
+    return (1, dev)
+
+
+def detect_serial_port() -> str:
+    ports = list(list_ports.comports())
+    if not ports:
+        raise RuntimeError("No serial ports found")
+
+    ch340 = [
+        p for p in ports
+        if (p.vid, p.pid) in CH340_VID_PID
+    ]
+    if len(ch340) == 1:
+        return ch340[0].device
+    if len(ch340) > 1:
+        ch340.sort(key=_port_sort_key)
+        return ch340[0].device
+
+    usb_like = [p for p in ports if p.vid is not None and p.pid is not None]
+    if len(usb_like) == 1:
+        return usb_like[0].device
+    if len(ports) == 1:
+        return ports[0].device
+
+    ports.sort(key=_port_sort_key)
+    details = ", ".join(
+        f"{p.device} (vid=0x{(p.vid or 0):04X}, pid=0x{(p.pid or 0):04X})"
+        for p in ports
+    )
+    raise RuntimeError(
+        "Cannot auto-detect unique serial port. "
+        f"Available ports: {details}. Use --port COMx explicitly."
+    )
+
+
 def main():
     p = argparse.ArgumentParser(description="Flash app.bin via UART bootloader")
-    p.add_argument("--port", required=True, help="COM port, e.g. COM7")
+    p.add_argument("--port", default="auto", help="COM port (e.g. COM7) or auto")
     p.add_argument("--bin", required=True, help="Path to application .bin")
     p.add_argument("--baud", type=int, default=460800)
     p.add_argument("--chunk", type=int, default=256)
@@ -89,11 +133,15 @@ def main():
     header = struct.pack("<II", size, crc)
 
     print(f"BIN: {bin_path}")
-    print(f"Size: {size} bytes")
+    print(f"Size: {size} bytes") 
     print(f"CRC32(BL): 0x{crc:08X}")
 
     try:
-        with serial.Serial(args.port, args.baud, timeout=0.1) as ser:
+        port = args.port
+        if port.lower() == "auto":
+            port = detect_serial_port()
+            print(f"Auto-detected port: {port}")
+        with serial.Serial(port, args.baud, timeout=0.1) as ser:
             print("Waiting bootloader invitation (0x01)...")
             expect(ser, BL_WAITING, args.wait_boot, "BL_WAITING")
 
