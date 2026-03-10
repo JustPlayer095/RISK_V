@@ -162,13 +162,13 @@
             "problemMatcher": []
         },
         {
-            "label": "app-flash-via-bootloader-com6",
+            "label": "app-flash-via-bootloader",
             "type": "shell",
             "command": "python",
             "args": [
                 "${workspaceFolder}/bootloader/boot.py",
                 "--port",
-                "COM6",
+                "auto",
                 "--bin",
                 "${workspaceFolder}/vg015/build/vg015.bin",
                 "--baud",

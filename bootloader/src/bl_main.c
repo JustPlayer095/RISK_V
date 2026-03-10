@@ -2,6 +2,7 @@
 #include "../include/bl_jump.h"
 #include "../include/bl_config.h"
 #include "../include/bl_hal.h"
+#include "../include/bl_crc32.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -25,6 +26,8 @@ static int bl_flash_program_image(const bl_app_header_t* hdr) {
     uint32_t wr_addr;
     uint32_t chunk;
     uint32_t image_total;
+    uint32_t calc_crc;
+    bl_app_header_t header_to_write;
 
     image_total = hdr->image_size + (uint32_t)sizeof(bl_app_header_t);
     if (!bl_hal_flash_erase_range(APP_HEADER_ADDR, image_total)) {
@@ -48,7 +51,16 @@ static int bl_flash_program_image(const bl_app_header_t* hdr) {
         bl_proto_send(BL_PROTO_REPLY_ACK);
     }
 
-    if (!bl_hal_flash_write(APP_HEADER_ADDR, (const uint8_t*)hdr, (uint32_t)sizeof(*hdr))) {
+    calc_crc = bl_crc32_calc((const uint8_t*)(uintptr_t)APP_PAYLOAD_ADDR, hdr->image_size);
+    header_to_write = *hdr;
+    if (header_to_write.crc32 == 0u) {
+        /* Host can skip CRC calculation and request device-side CRC fill. */
+        header_to_write.crc32 = calc_crc;
+    } else if (header_to_write.crc32 != calc_crc) {
+        return (int)BL_PROTO_ERR_CRC32;
+    }
+
+    if (!bl_hal_flash_write(APP_HEADER_ADDR, (const uint8_t*)&header_to_write, (uint32_t)sizeof(header_to_write))) {
         return (int)BL_PROTO_ERR_WAIT_WRITE_PAGE;
     }
 
