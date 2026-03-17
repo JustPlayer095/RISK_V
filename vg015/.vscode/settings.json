@@ -10,11 +10,9 @@
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\bsp",
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\plib\\inc",
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\device\\include",
-        "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\adcsar",
-        "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\config",
+        "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\calc",
         "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\driver",
-        "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\gpio",
-        "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\osdp"
+        "c:\\_WORKSPACE\\WORKPROJECT\\vg015\\modules\\gpio"
     ],
     "files.associations": {
         "stdint.h": "c",
