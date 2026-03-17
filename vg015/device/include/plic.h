@@ -10,7 +10,7 @@
 #define _PLIC_H
 
 #include "stdint.h"
-#include <K1921VG015.h>
+#include "K1921VG015.h"
 
 #define __I     volatile const                /*!< defines 'read only' permissions      */
 #define __O     volatile                      /*!< defines 'write only' permissions     */
