@@ -101,7 +101,11 @@ void GPIO_PullModeConfig(GPIO_TypeDef* GPIOx, uint32_t Pin, GPIO_PullMode_TypeDe
     assert_param(IS_GPIO_PIN(Pin));
     assert_param(IS_GPIO_PULL_MODE(PullMode));
 
-    MODIFY_REG(GPIOx->PULLMODE, Pin, (uint32_t)PullMode);
+    if (PullMode == GPIO_PullMode_PU) {
+        SET_BIT(GPIOx->PULLMODE, Pin);
+    } else {
+        CLEAR_BIT(GPIOx->PULLMODE, Pin);
+    }
 }
 
 /**
