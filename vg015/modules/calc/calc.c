@@ -1,5 +1,11 @@
 #include <stdio.h>
 #include "calc.h"
+#include "../../device/include/K1921VG015.h"
+#include "../../device/include/system_k1921vg015.h"
+#include "../../device/include/plic.h"
+#include "../../plib/inc/plib015_gpio.h"
+#include "../../plib/inc/plib015_tmr32.h"
+#include "../gpio/gpio_helpers.h"
 
 #define EXPR_MAX_LEN  64
 #define MAX_TOKENS    64
@@ -12,6 +18,107 @@ typedef struct {
 
 static char expr[EXPR_MAX_LEN];
 static int  expr_len = 0;
+static volatile uint32_t ms_ticks = 0;
+static volatile uint32_t g_btn_last_ms[KEY_COUNT] = {0};
+static volatile uint8_t g_btn_last_state[KEY_COUNT] = {
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+};
+static const uint32_t g_debounce_ms = 50;
+
+static GPIO_TypeDef* const g_btn_ports[KEY_COUNT] = {
+  GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB,
+  GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB, GPIOB
+};
+static const uint32_t g_btn_pins[KEY_COUNT] = {
+  GPIO_Pin_0,  GPIO_Pin_1,  GPIO_Pin_2,  GPIO_Pin_3,
+  GPIO_Pin_4,  GPIO_Pin_5,  GPIO_Pin_6,  GPIO_Pin_7,
+  GPIO_Pin_8,  GPIO_Pin_9,  GPIO_Pin_10, GPIO_Pin_11,
+  GPIO_Pin_12, GPIO_Pin_13, GPIO_Pin_14, GPIO_Pin_15
+};
+static const key_id_t g_btn_keys[KEY_COUNT] = {
+  KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7,
+  KEY_8, KEY_9, KEY_PLUS, KEY_MINUS, KEY_MUL, KEY_DIV, KEY_DEL, KEY_EQ
+};
+
+static void gpio_irq_handler(void);
+static void tmr32_irq_handler(void);
+
+static void calc_gpio_init(void)
+{
+  RCU->CGCFGAHB_bit.GPIOBEN = 1;
+  RCU->RSTDISAHB_bit.GPIOBEN = 1;
+}
+
+static void calc_gpio_irq_init(void)
+{
+  for (uint8_t i = 0; i < KEY_COUNT; i++) {
+    gpio_init_input_irq(g_btn_ports[i], g_btn_pins[i], GPIO_PullMode_PU, &g_btn_last_state[i]);
+  }
+
+  PLIC_SetPriority(PLIC_GPIO_VECTNUM, 1);
+  PLIC_SetIrqHandler(Plic_Mach_Target, PLIC_GPIO_VECTNUM, gpio_irq_handler);
+  PLIC_IntEnable(Plic_Mach_Target, PLIC_GPIO_VECTNUM);
+}
+
+static void calc_tmr32_init(void)
+{
+  RCU->CGCFGAPB_bit.TMR32EN = 1;
+  RCU->RSTDISAPB_bit.TMR32EN = 1;
+
+  TMR32_SetClksel(TMR32_Clksel_SysClk);
+  TMR32_SetDivider(TMR32_Div_8);
+  TMR32_SetMode(TMR32_Mode_Capcom_Up);
+  uint32_t cmp = (SystemCoreClock / 8u) / 1000u;
+  if (cmp == 0) {
+    cmp = 1;
+  }
+  TMR32_CAPCOM_SetComparator(TMR32_CAPCOM_0, cmp);
+  TMR32_SetCounter(0);
+  TMR32_ITCmd(TMR32_IT_CAPCOM_0, ENABLE);
+
+  PLIC_SetPriority(PLIC_TMR32_VECTNUM, 1);
+  PLIC_SetIrqHandler(Plic_Mach_Target, PLIC_TMR32_VECTNUM, tmr32_irq_handler);
+  PLIC_IntEnable(Plic_Mach_Target, PLIC_TMR32_VECTNUM);
+}
+
+void calc_init(void)
+{
+  calc_gpio_init();
+  calc_tmr32_init();
+  calc_gpio_irq_init();
+}
+
+static void gpio_irq_handler(void)
+{
+  uint32_t now = ms_ticks;
+
+  for (uint8_t i = 0; i < KEY_COUNT; i++) {
+    if (GPIO_ITStatus(g_btn_ports[i], g_btn_pins[i]) == SET) {
+      uint8_t btn_current = GPIO_ReadBit(g_btn_ports[i], g_btn_pins[i]) ? 1 : 0;
+
+      if (g_btn_last_state[i] == 1 && btn_current == 0) {
+        if ((now - g_btn_last_ms[i]) >= g_debounce_ms) {
+          on_key_pressed(g_btn_keys[i]);
+          g_btn_last_ms[i] = now;
+          g_btn_last_state[i] = btn_current;
+        }
+      } else if (g_btn_last_state[i] == 0 && btn_current == 1) {
+        if ((now - g_btn_last_ms[i]) >= g_debounce_ms) {
+          g_btn_last_state[i] = btn_current;
+          g_btn_last_ms[i] = now;
+        }
+      }
+
+      GPIO_ITStatusClear(g_btn_ports[i], g_btn_pins[i]);
+    }
+  }
+}
+
+static void tmr32_irq_handler(void)
+{
+  ms_ticks++;
+  TMR32_ITClear(TMR32_IT_CAPCOM_0);
+}
 
 static int precedence(char op)
 {

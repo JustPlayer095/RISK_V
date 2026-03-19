@@ -15,6 +15,8 @@ typedef enum {
 
 // Обработка нажатия логической кнопки калькулятора
 void on_key_pressed(key_id_t key);
+// Инициализация аппаратной части калькулятора (кнопки и антидребезг)
+void calc_init(void);
 
 #endif // CALC_H
 

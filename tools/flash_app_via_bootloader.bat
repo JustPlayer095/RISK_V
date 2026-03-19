@@ -2,8 +2,11 @@
 setlocal
 
 set "ROOT=%~dp0.."
-set "OBJCOPY_EXE=%OBJCOPY_EXE%"
-if "%OBJCOPY_EXE%"=="" set "OBJCOPY_EXE=C:\Users\kac\.niiet_aspect\riscv_gcc_windows\bin\riscv64-unknown-elf-objcopy.exe"
+call "%~dp0toolchain_env.bat"
+if "%OBJCOPY_EXE%"=="" (
+  echo ERROR: OBJCOPY_EXE not found. Set OBJCOPY_EXE or add riscv64-unknown-elf-objcopy.exe to PATH.
+  exit /b 1
+)
 set "PYTHON_EXE=%PYTHON_EXE%"
 if "%PYTHON_EXE%"=="" set "PYTHON_EXE=python"
 

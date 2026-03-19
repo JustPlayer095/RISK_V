@@ -2,11 +2,17 @@
 setlocal
 
 set "ROOT=%~dp0.."
-set "OPENOCD_EXE=%OPENOCD_EXE%"
-if "%OPENOCD_EXE%"=="" set "OPENOCD_EXE=C:\Users\kac\.niiet_aspect\riscv_kit_windows\bin\openocd.exe"
+call "%~dp0toolchain_env.bat"
 
 set "OPENOCD_SCRIPTS_ROOT=%OPENOCD_SCRIPTS_ROOT%"
-if "%OPENOCD_SCRIPTS_ROOT%"=="" set "OPENOCD_SCRIPTS_ROOT=C:\Users\kac\.niiet_aspect\riscv_kit_windows"
+if "%OPENOCD_EXE%"=="" (
+  echo ERROR: OPENOCD_EXE not found. Set OPENOCD_EXE or add openocd.exe to PATH.
+  exit /b 1
+)
+if "%OPENOCD_SCRIPTS_ROOT%"=="" (
+  echo ERROR: OPENOCD_SCRIPTS_ROOT not found. Set OPENOCD_SCRIPTS_ROOT to OpenOCD scripts directory.
+  exit /b 1
+)
 
 set "OPENOCD_INTERFACE_CFG=%OPENOCD_INTERFACE_CFG%"
 if "%OPENOCD_INTERFACE_CFG%"=="" set "OPENOCD_INTERFACE_CFG=./interface/onboard_ftdi.cfg"
