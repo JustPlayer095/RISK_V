@@ -2,5 +2,22 @@
     "files.associations": {
         "plib015.h": "c"
     },
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "workproject.makeExe": "C:/Users/kac/.niiet_aspect/riscv_kit_windows/bin/make.exe",
+    "workproject.compilerPath": "C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin",
+    "workproject.prefix": "riscv64-unknown-elf-",
+    "workproject.march": "rv32imfc_zicsr",
+    "workproject.mabi": "ilp32f",
+    "workproject.optimisation": "-O0",
+    "workproject.openocdExe": "C:/Users/kac/.niiet_aspect/riscv_kit_windows/bin/openocd.exe",
+    "workproject.openocdScriptsRoot": "C:/Users/kac/.niiet_aspect/riscv_kit_windows",
+    "workproject.openocdInterfaceCfg": "./interface/onboard_ftdi.cfg",
+    "workproject.openocdTargetCfg": "./target/k1921vg015.cfg",
+    "workproject.openocdInitCmd": "init;halt",
+    "workproject.gdbExe": "C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin/riscv64-unknown-elf-gdb.exe",
+    "workproject.objcopyExe": "C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin/riscv64-unknown-elf-objcopy.exe",
+    "workproject.pythonExe": "python",
+    "workproject.bootPort": "auto",
+    "workproject.bootBaud": "115200",
+    "workproject.bootTimeout": "30"
 }

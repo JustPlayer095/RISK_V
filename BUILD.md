@@ -31,6 +31,23 @@ tools\flash_app_via_bootloader.bat
 tools\dev_menu.bat
 ```
 
+## Настройка VS Code Tasks
+
+`tasks.json` использует параметры из workspace-настроек (`workproject.*`).
+
+1. Открой `.vscode/settings.template.json`.
+2. Скопируй значения `workproject.*` в `.vscode/settings.json`.
+3. Заполни пути под свой ПК.
+
+Минимально необходимые поля:
+
+- `workproject.makeExe`
+- `workproject.compilerPath`
+- `workproject.openocdExe`
+- `workproject.openocdScriptsRoot`
+- `workproject.gdbExe`
+- `workproject.objcopyExe`
+
 ## Переменные toolchain
 
 Значения по умолчанию можно переопределить через переменные окружения:
