@@ -11,7 +11,7 @@ Thumbs.db
 !.vscode/settings.json
 !.vscode/launch.json
 !.vscode/extensions.json
-
+.claude
 vg015/.vscode/*
 !vg015/.vscode/tasks.json
 !vg015/.vscode/settings.json

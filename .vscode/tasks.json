@@ -4,18 +4,70 @@
         {
             "label": "start-openocd",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\openocd.exe",
+            "command": "${config:workproject.openocdExe}",
             "args": [
-                "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows",
-                "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\interface",
-                "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\target",
-                "-f", "./interface/onboard_ftdi.cfg",
-                "-f", "./target/k1921vg015.cfg",
-                "-c", "init;halt",
+                "-s", "${config:workproject.openocdScriptsRoot}",
+                "-s", "${config:workproject.openocdScriptsRoot}/interface",
+                "-s", "${config:workproject.openocdScriptsRoot}/target",
+                "-f", "${config:workproject.openocdInterfaceCfg}",
+                "-f", "${config:workproject.openocdTargetCfg}",
+                "-c", "${config:workproject.openocdInitCmd}",
                 "-d1"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/vg015"
+                "cwd": "${workspaceFolder}/vg015",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
+            },
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": [
+                    {
+                        "regexp": ".",
+                        "file": 1,
+                        "location": 2,
+                        "message": 3
+                    }
+                ],
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "Open On-Chip Debugger",
+                    "endsPattern": "for telnet connections"
+                }
+            },
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "start-openocd-safe",
+            "type": "shell",
+            "command": "${config:workproject.openocdExe}",
+            "args": [
+                "-s", "${config:workproject.openocdScriptsRoot}",
+                "-s", "${config:workproject.openocdScriptsRoot}/interface",
+                "-s", "${config:workproject.openocdScriptsRoot}/target",
+                "-f", "${config:workproject.openocdInterfaceCfg}",
+                "-f", "${config:workproject.openocdTargetCfg}",
+                "-c", "reset_config none",
+                "-c", "init",
+                "-d1"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/vg015",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
             },
             "isBackground": true,
             "problemMatcher": {
@@ -41,14 +93,14 @@
         {
             "label": "bootloader-build",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\make.exe",
+            "command": "${config:workproject.makeExe}",
             "args": [
                 "all",
-                "COMPILER_PATH=C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin",
-                "PREFIX=riscv64-unknown-elf-",
-                "MARCH=rv32imfc_zicsr",
-                "MABI=ilp32f",
-                "OPTIMISATION=-O0"
+                "COMPILER_PATH=${config:workproject.compilerPath}",
+                "PREFIX=${config:workproject.prefix}",
+                "MARCH=${config:workproject.march}",
+                "MABI=${config:workproject.mabi}",
+                "OPTIMISATION=${config:workproject.optimisation}"
             ],
             "options": {
                 "cwd": "${workspaceFolder}/bootloader",
@@ -73,14 +125,14 @@
         {
             "label": "app-build",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\make.exe",
+            "command": "${config:workproject.makeExe}",
             "args": [
                 "all",
-                "COMPILER_PATH=C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin",
-                "PREFIX=riscv64-unknown-elf-",
-                "MARCH=rv32imfc_zicsr",
-                "MABI=ilp32f",
-                "OPTIMISATION=-O0"
+                "COMPILER_PATH=${config:workproject.compilerPath}",
+                "PREFIX=${config:workproject.prefix}",
+                "MARCH=${config:workproject.march}",
+                "MABI=${config:workproject.mabi}",
+                "OPTIMISATION=${config:workproject.optimisation}"
             ],
             "options": {
                 "cwd": "${workspaceFolder}/vg015",
@@ -105,7 +157,7 @@
         {
             "label": "bootloader-flash",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_gcc_windows\\bin\\riscv64-unknown-elf-gdb.exe",
+            "command": "${config:workproject.gdbExe}",
             "args": [
                 "${workspaceFolder}/bootloader/build/bootloader.elf",
                 "-q",
@@ -119,7 +171,14 @@
                 "-ex=quit"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/bootloader"
+                "cwd": "${workspaceFolder}/bootloader",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
             },
             "dependsOn": [
                 "start-openocd",
@@ -143,7 +202,7 @@
         {
             "label": "app-hex-to-bin",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_gcc_windows\\bin\\riscv64-unknown-elf-objcopy.exe",
+            "command": "${config:workproject.objcopyExe}",
             "args": [
                 "-I",
                 "ihex",
@@ -153,7 +212,14 @@
                 "${workspaceFolder}/vg015/build/vg015.bin"
             ],
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
             },
             "presentation": {
                 "reveal": "always",
@@ -164,20 +230,27 @@
         {
             "label": "app-flash-via-bootloader",
             "type": "shell",
-            "command": "python",
+            "command": "${config:workproject.pythonExe}",
             "args": [
                 "${workspaceFolder}/bootloader/boot.py",
                 "--port",
-                "auto",
+                "${config:workproject.bootPort}",
                 "--bin",
                 "${workspaceFolder}/vg015/build/vg015.bin",
                 "--baud",
-                "115200",
+                "${config:workproject.bootBaud}",
                 "--timeout",
-                "30"
+                "${config:workproject.bootTimeout}"
             ],
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
             },
             "presentation": {
                 "reveal": "always",
@@ -189,9 +262,75 @@
             "label": "app-hex-to-bin-and-flash-via-bootloader",
             "dependsOn": [
                 "app-hex-to-bin",
-                "app-flash-via-bootloader-com6"
+                "app-flash-via-bootloader"
             ],
             "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "debug-bootloader-safe",
+            "type": "shell",
+            "command": "${config:workproject.gdbExe}",
+            "args": [
+                "${workspaceFolder}/bootloader/build/bootloader.elf",
+                "-q",
+                "-batch",
+                "-ex=set confirm off",
+                "-ex=target extended-remote localhost:3333",
+                "-ex=monitor halt",
+                "-ex=load"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/bootloader",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
+            },
+            "dependsOn": [
+                "start-openocd-safe",
+                "bootloader-build"
+            ],
+            "dependsOrder": "sequence",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "debug-app-attach-safe",
+            "type": "shell",
+            "command": "${config:workproject.gdbExe}",
+            "args": [
+                "${workspaceFolder}/vg015/build/vg015.elf",
+                "-q",
+                "-batch",
+                "-ex=set confirm off",
+                "-ex=target extended-remote localhost:3333",
+                "-ex=monitor halt"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/vg015",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
+            },
+            "dependsOn": [
+                "start-openocd-safe"
+            ],
+            "dependsOrder": "sequence",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
             "problemMatcher": []
         }
     ]

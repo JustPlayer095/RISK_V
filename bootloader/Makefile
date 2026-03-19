@@ -8,6 +8,12 @@ ADDITIONAL_FLAGS ?=
 DEFINES ?= -DRETARGET
 PREFIX ?=
 
+# Force cmd.exe on Windows so batch-style for-loops work correctly
+ifeq ($(OS), Windows_NT)
+SHELL := cmd.exe
+.SHELLFLAGS := /c
+endif
+
 LINKER_PATH ?=
 MARCH ?=
 MABI ?=

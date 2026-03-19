@@ -4,6 +4,7 @@
 #include "device/include/system_k1921vg015.h"
 #include "device/include/retarget.h"
 #include "modules/calc/calc.h"
+#include "modules/driver/ws0010_1602.h"
 
 //-- Defines -------------------------------------------------------------------
 #define UART4_BAUD  115200
@@ -44,7 +45,13 @@ void periph_init()
   SystemInit();
   SystemCoreClockUpdate();
   retarget_init();
+  ws0010_init();
+  ws0010_goto(0, 0);
+  ws0010_print("HELLO WS0010");
+  ws0010_goto(1, 0);
+  ws0010_print("6800 4-bit");
   calc_init();
+
   InterruptEnable();
 }
 
