@@ -2,11 +2,17 @@
 setlocal
 
 set "ROOT=%~dp0.."
-set "MAKE_EXE=%MAKE_EXE%"
-if "%MAKE_EXE%"=="" set "MAKE_EXE=C:\Users\kac\.niiet_aspect\riscv_kit_windows\bin\make.exe"
+call "%~dp0toolchain_env.bat"
 
 set "COMPILER_PATH=%COMPILER_PATH%"
-if "%COMPILER_PATH%"=="" set "COMPILER_PATH=C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin"
+if "%COMPILER_PATH%"=="" (
+  echo ERROR: COMPILER_PATH not found. Set COMPILER_PATH or add riscv64-unknown-elf-gcc.exe to PATH.
+  exit /b 1
+)
+if "%MAKE_EXE%"=="" (
+  echo ERROR: MAKE_EXE not found. Set MAKE_EXE or add make.exe to PATH.
+  exit /b 1
+)
 
 set "PREFIX=%PREFIX%"
 if "%PREFIX%"=="" set "PREFIX=riscv64-unknown-elf-"
