@@ -4,18 +4,18 @@
         {
             "label": "start-openocd",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\openocd.exe",
+            "command": "${env:OPENOCD_EXE}",
             "args": [
-                "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows",
-                "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\interface",
-                "-s", "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\target",
+                "-s", "${env:OPENOCD_SCRIPTS_ROOT}",
+                "-s", "${env:OPENOCD_SCRIPTS_ROOT}/interface",
+                "-s", "${env:OPENOCD_SCRIPTS_ROOT}/target",
                 "-f", "./interface/onboard_ftdi.cfg",
                 "-f", "./target/k1921vg015.cfg",
                 "-c", "init;halt",
                 "-d1"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/vg015"
+                "cwd": "${workspaceFolder}/${input:appProjectDir}"
             },
             "isBackground": true,
             "problemMatcher": {
@@ -41,10 +41,10 @@
         {
             "label": "bootloader-build",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\make.exe",
+            "command": "${env:MAKE_EXE}",
             "args": [
                 "all",
-                "COMPILER_PATH=C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin",
+                "COMPILER_PATH=${env:COMPILER_PATH}",
                 "PREFIX=riscv64-unknown-elf-",
                 "MARCH=rv32imfc_zicsr",
                 "MABI=ilp32f",
@@ -73,17 +73,17 @@
         {
             "label": "app-build",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_kit_windows\\bin\\make.exe",
+            "command": "${env:MAKE_EXE}",
             "args": [
                 "all",
-                "COMPILER_PATH=C:/Users/kac/.niiet_aspect/riscv_gcc_windows/bin",
+                "COMPILER_PATH=${env:COMPILER_PATH}",
                 "PREFIX=riscv64-unknown-elf-",
                 "MARCH=rv32imfc_zicsr",
                 "MABI=ilp32f",
                 "OPTIMISATION=-O0"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/vg015",
+                "cwd": "${workspaceFolder}/${input:appProjectDir}",
                 "shell": {
                     "executable": "C:\\Windows\\System32\\cmd.exe",
                     "args": [
@@ -105,7 +105,7 @@
         {
             "label": "bootloader-flash",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_gcc_windows\\bin\\riscv64-unknown-elf-gdb.exe",
+            "command": "${env:GDB_EXE}",
             "args": [
                 "${workspaceFolder}/bootloader/build/bootloader.elf",
                 "-q",
@@ -141,16 +141,36 @@
             "problemMatcher": []
         },
         {
+            "label": "setup-toolchain-paths",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/tools/setup_toolchain_env.ps1"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "app-hex-to-bin",
             "type": "shell",
-            "command": "C:\\Users\\kac\\.niiet_aspect\\riscv_gcc_windows\\bin\\riscv64-unknown-elf-objcopy.exe",
+            "command": "${env:OBJCOPY_EXE}",
             "args": [
                 "-I",
                 "ihex",
                 "-O",
                 "binary",
-                "${workspaceFolder}/vg015/build/vg015.hex",
-                "${workspaceFolder}/vg015/build/vg015.bin"
+                "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.hex",
+                "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -170,7 +190,7 @@
                 "--port",
                 "auto",
                 "--bin",
-                "${workspaceFolder}/vg015/build/vg015.bin",
+                "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin",
                 "--baud",
                 "115200",
                 "--timeout",
@@ -189,10 +209,24 @@
             "label": "app-hex-to-bin-and-flash-via-bootloader",
             "dependsOn": [
                 "app-hex-to-bin",
-                "app-flash-via-bootloader-com6"
+                "app-flash-via-bootloader"
             ],
             "dependsOrder": "sequence",
             "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "appProjectDir",
+            "type": "promptString",
+            "description": "Папка проекта основного приложения (относительно workspace)",
+            "default": "vg015"
+        },
+        {
+            "id": "appProjectName",
+            "type": "promptString",
+            "description": "Имя выходного файла приложения (без расширения)",
+            "default": "vg015"
         }
     ]
 }

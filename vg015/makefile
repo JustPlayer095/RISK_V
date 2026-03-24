@@ -36,8 +36,10 @@ LIBS ?= -L$(LINKER_PATH)
 LIBS_ACR ?= -lc_nano -lg_nano -lgcc
 	
 LD_FLAGS ?= -static $(LIBS)  $(LIBS_ACR)
-	
-export CROSS_PREFIX  ?= $(COMPILER_PATH)/$(PREFIX)
+
+# Normalize Windows-style paths for sh-based recipes.
+COMPILER_PATH_NORM := $(subst \,/,$(COMPILER_PATH))
+export CROSS_PREFIX  ?= $(COMPILER_PATH_NORM)/$(PREFIX)
 ifeq ($(OS), Windows_NT)
 export RISCV-GCC	 ?= $(CROSS_PREFIX)gcc.exe -c -Wall $(OPTIMISATION) -march=$(MARCH) -mabi=$(MABI) -g -ggdb3 $(DEFINES) $(INCLUDE_FOLDERS) -static -std=gnu99 $(LIBS) $(LIBS_ACR) $(ADDITIONAL_FLAGS)
 export RISCV-AS 	 ?= $(CROSS_PREFIX)as.exe -mno-arch-attr $(OPTIMISATION) -march=$(MARCH) -mabi=$(MABI) $(ADDITIONAL_FLAGS)
@@ -56,13 +58,8 @@ export RISCV-SIZE 	 ?= $(CROSS_PREFIX)size
 export RISCV-GDB	 ?= $(CROSS_PREFIX)gdb
 endif
 
-ifeq ($(OS), Windows_NT)
 make_build:
-	@for %%d in ($(OBJ_DIRS)) do @if not exist "$(BUILD_PATH)/%%d" mkdir "$(BUILD_PATH)/%%d"
-else
-make_build:
-	@ -$(foreach dir,$(OBJ_DIRS),mkdir -p $(BUILD_PATH)/$(dir) && ):
-endif
+	@$(foreach dir,$(OBJ_DIRS),mkdir -p "$(BUILD_PATH)/$(dir)";)
 	
 help:
 	@ echo "help: make [all, clean, load]"
@@ -96,7 +93,7 @@ size: $(BUILD_PATH)/$(TARGET_NAME).elf
 	
 clean:
 	@ echo "CLEANING "$^""
-	@ -if exist $(BUILD_PATH) rmdir /s /q $(BUILD_PATH)
+	@rm -rf "$(BUILD_PATH)"
 	@ echo "...DONE"
 	
 hex:

@@ -21,7 +21,6 @@ SRCS := ./src/bl_main.c \
         ./src/bl_image.c \
         ./src/bl_crc32.c \
         ./src/bl_jump.c \
-        ./src/bl_trap.c \
         ../vg015/device/source/sys_init.c
 
 ASMS := ../vg015/device/source/startup_k1921vg015.S
@@ -37,7 +36,9 @@ LIBS ?= -L$(LINKER_PATH)
 LIBS_ACR ?= -lc_nano -lg_nano -lgcc
 LD_FLAGS ?= -static $(LIBS) $(LIBS_ACR)
 
-export CROSS_PREFIX ?= $(COMPILER_PATH)/$(PREFIX)
+# Normalize Windows-style paths for sh-based recipes.
+COMPILER_PATH_NORM := $(subst \,/,$(COMPILER_PATH))
+export CROSS_PREFIX ?= $(COMPILER_PATH_NORM)/$(PREFIX)
 ifeq ($(OS), Windows_NT)
 export RISCV-GCC     ?= $(CROSS_PREFIX)gcc.exe -c -Wall $(OPTIMISATION) -march=$(MARCH) -mabi=$(MABI) -g -ggdb3 $(DEFINES) $(INCLUDE_FOLDERS) -static -std=gnu99 $(LIBS) $(LIBS_ACR) $(ADDITIONAL_FLAGS)
 export RISCV-OBJDUMP ?= $(CROSS_PREFIX)objdump.exe -S
@@ -52,13 +53,8 @@ export RISCV-SIZE    ?= $(CROSS_PREFIX)size
 export RISCV-GDB     ?= $(CROSS_PREFIX)gdb
 endif
 
-ifeq ($(OS), Windows_NT)
 make_build:
-	@for %%d in ($(OBJ_DIRS)) do @if not exist "$(BUILD_PATH)/%%d" mkdir "$(BUILD_PATH)/%%d"
-else
-make_build:
-	@ -$(foreach dir,$(OBJ_DIRS),mkdir -p $(BUILD_PATH)/$(dir) && ):
-endif
+	@$(foreach dir,$(OBJ_DIRS),mkdir -p "$(BUILD_PATH)/$(dir)";)
 
 header:
 	@ echo "K1921VG015 Bootloader build"
@@ -73,12 +69,12 @@ header:
 	$(RISCV-GCC) $^ -o $(BUILD_PATH)/$@
 	@ echo "...DONE"
 
-%.elf: $(OBJS)
+$(BUILD_PATH)/$(TARGET_NAME).elf: $(OBJS)
 	@ echo "LINK "$^""
 	$(CROSS_PREFIX)g++ -o $@ $(foreach obj,$(OBJS),$(BUILD_PATH)/$(obj)) -static -march=$(MARCH) -mabi=$(MABI) -g -ggdb3 -std=gnu99 $(LD_FLAGS) -nostartfiles -T ./device/ldscripts/k1921vg015_boot.ld
 	@ echo "...DONE"
 
-%.dump: %.elf
+$(BUILD_PATH)/$(TARGET_NAME).dump: $(BUILD_PATH)/$(TARGET_NAME).elf
 	@ echo "DUMP "$^""
 	$(RISCV-OBJDUMP) $^ > $@
 	@ echo "...DONE"
@@ -94,7 +90,7 @@ hex:
 
 clean:
 	@ echo "CLEANING"
-	@ -if exist $(BUILD_PATH) rmdir /s /q $(BUILD_PATH)
+	@rm -rf "$(BUILD_PATH)"
 	@ echo "...DONE"
 
 all: header clean make_build $(BUILD_PATH)/$(TARGET_NAME).elf $(BUILD_PATH)/$(TARGET_NAME).dump hex size

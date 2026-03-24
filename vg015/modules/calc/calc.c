@@ -6,6 +6,7 @@
 #include "../../plib/inc/plib015_gpio.h"
 #include "../../plib/inc/plib015_tmr32.h"
 #include "../gpio/gpio_helpers.h"
+#include "../timebase/timebase.h"
 
 #define EXPR_MAX_LEN  64
 #define MAX_TOKENS    64
@@ -18,7 +19,6 @@ typedef struct {
 
 static char expr[EXPR_MAX_LEN];
 static int  expr_len = 0;
-static volatile uint32_t ms_ticks = 0;
 static volatile uint32_t g_btn_last_ms[KEY_COUNT] = {0};
 static volatile uint8_t g_btn_last_state[KEY_COUNT] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1

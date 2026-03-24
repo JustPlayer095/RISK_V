@@ -31,24 +31,24 @@ static int bl_flash_program_image(const bl_app_header_t* hdr) {
 
     image_total = hdr->image_size + (uint32_t)sizeof(bl_app_header_t);
     if (!bl_hal_flash_erase_range(APP_HEADER_ADDR, image_total)) {
-        return (int)BL_PROTO_ERR_WAIT_ERASE_PAGE;
+        return (int)ERR_WAIT_ERASE_PAGE;
     }
     /* Сообщаем хосту готовность только после стирания flash. */
-    bl_proto_send(BL_PROTO_REPLY_ACK);
+    bl_proto_send(REPLY_ACK);
 
     left = hdr->image_size;
     wr_addr = APP_PAYLOAD_ADDR;
     while (left > 0u) {
         chunk = (left > (uint32_t)sizeof(buf)) ? (uint32_t)sizeof(buf) : left;
         if (!bl_hal_uart_get(buf, chunk, BL_UPDATE_WAIT_TIMEOUT_MS)) {
-            return (int)BL_PROTO_ERR_RECEIVE;
+            return (int)ERR_RECEIVE;
         }
         if (!bl_hal_flash_write(wr_addr, buf, chunk)) {
-            return (int)BL_PROTO_ERR_WAIT_WRITE_PAGE;
+            return (int)ERR_WAIT_WRITE_PAGE;
         }
         wr_addr += chunk;
         left -= chunk;
-        bl_proto_send(BL_PROTO_REPLY_ACK);
+        bl_proto_send(REPLY_ACK);
     }
 
     calc_crc = bl_crc32_calc((const uint8_t*)(uintptr_t)APP_PAYLOAD_ADDR, hdr->image_size);
@@ -57,11 +57,11 @@ static int bl_flash_program_image(const bl_app_header_t* hdr) {
         /* Host can skip CRC calculation and request device-side CRC fill. */
         header_to_write.crc32 = calc_crc;
     } else if (header_to_write.crc32 != calc_crc) {
-        return (int)BL_PROTO_ERR_CRC32;
+        return (int)ERR_CRC32;
     }
 
     if (!bl_hal_flash_write(APP_HEADER_ADDR, (const uint8_t*)&header_to_write, (uint32_t)sizeof(header_to_write))) {
-        return (int)BL_PROTO_ERR_WAIT_WRITE_PAGE;
+        return (int)ERR_WAIT_WRITE_PAGE;
     }
 
     return 0;
@@ -82,7 +82,7 @@ static int bl_receive_and_program(void) {
     }
 
     if (!bl_image_header_is_valid(&hdr)) {
-        return (int)BL_PROTO_ERR_TOO_BIG;
+        return (int)ERR_SIZE;
     }
 
     rc = bl_flash_program_image(&hdr);
@@ -91,7 +91,7 @@ static int bl_receive_and_program(void) {
     }
 
     if (!bl_image_is_valid() || bl_image_get_size() != hdr.image_size) {
-        return (int)BL_PROTO_ERR_CRC32;
+        return (int)ERR_CRC32;
     }
 
     return 0;
@@ -104,7 +104,7 @@ static void bl_enter_update_mode(void) {
 
     bl_hal_set_update_mode_leds(true);
     while (1) {
-        bl_proto_send(BL_PROTO_REPLY_WAITING);
+        bl_proto_send(REPLY_WAITING);
         rc = bl_receive_and_program();
         if (rc == BL_INTERNAL_NO_HEADER) {
             continue;
@@ -112,7 +112,7 @@ static void bl_enter_update_mode(void) {
         if (rc == 0) {
             /* Повторяем финальный ACK, чтобы хост успел его прочитать до перехода. */
             for (i = 0u; i < 4u; ++i) {
-                bl_proto_send(BL_PROTO_REPLY_ACK);
+                bl_proto_send(REPLY_ACK);
                 bl_hal_uart_wait_tx_idle();
             }
             for (i = 0u; i < 200000u; ++i) {

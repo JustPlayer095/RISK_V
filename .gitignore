@@ -57,3 +57,6 @@ __pycache__/
 # Generated logs/reports
 *.log
 bootloader/bl_log.html
+
+# Local AI assistant workspace
+.claude/
