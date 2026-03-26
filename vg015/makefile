@@ -9,6 +9,12 @@ COMPILER_PATH ?=
 ADDITIONAL_FLAGS ?=
 DEFINES ?= -DRETARGET -DHSECLK_VAL=16000000 -DSYSCLK_PLL -DCKO_PLL0
 PREFIX ?= 
+
+# Ensure Windows recipes run under cmd.exe even if make provides sh.exe
+ifeq ($(OS), Windows_NT)
+SHELL := cmd.exe
+.SHELLFLAGS := /c
+endif
 	
 LINKER_PATH  		?=
 LD_SRC 				?=

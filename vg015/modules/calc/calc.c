@@ -6,7 +6,7 @@
 #include "../../plib/inc/plib015_gpio.h"
 #include "../../plib/inc/plib015_tmr32.h"
 #include "../gpio/gpio_helpers.h"
-#include "../timebase/timebase.h"
+#include "../driver/ws0010_1602.h"
 
 #define EXPR_MAX_LEN  64
 #define MAX_TOKENS    64
@@ -47,6 +47,25 @@ static void calc_gpio_init(void)
 {
   RCU->CGCFGAHB_bit.GPIOBEN = 1;
   RCU->RSTDISAHB_bit.GPIOBEN = 1;
+}
+
+static void oled_show_expr_and_result(const char* expr_str, int has_result, int result)
+{
+  ws0010_clear();
+
+  // Первая строка: выражение
+  ws0010_goto(0, 0);
+  if (expr_str && expr_str[0] != '\0') {
+    ws0010_print(expr_str);
+  }
+
+  // Вторая строка: только число результата (без префиксов)
+  if (has_result) {
+    char buf[17]; // 16 символов + терминатор
+    snprintf(buf, sizeof(buf), "%d", result);
+    ws0010_goto(1, 0);
+    ws0010_print(buf);
+  }
 }
 
 static void calc_gpio_irq_init(void)
@@ -236,7 +255,7 @@ void on_key_pressed(key_id_t key)
       expr[expr_len++] = c;
       expr[expr_len] = '\0';
     }
-    printf("EXPR: %s\r\n", expr);
+    oled_show_expr_and_result(expr, 0, 0);
     break;
   }
 
@@ -262,7 +281,7 @@ void on_key_pressed(key_id_t key)
       expr[expr_len++] = c;
       expr[expr_len] = '\0';
     }
-    printf("EXPR: %s\r\n", expr);
+    oled_show_expr_and_result(expr, 0, 0);
     break;
   }
 
@@ -270,7 +289,7 @@ void on_key_pressed(key_id_t key)
     if (expr_len > 0) {
       expr[--expr_len] = '\0';
     }
-    printf("EXPR: %s\r\n", expr);
+    oled_show_expr_and_result(expr, 0, 0);
     break;
 
   case KEY_EQ: {
@@ -287,18 +306,21 @@ void on_key_pressed(key_id_t key)
     int rpn_len;
     int rc = parse_to_rpn(expr, rpn, &rpn_len);
     if (rc != 0) {
-      printf("Parse error: %d\r\n", rc);
+      // Показываем только выражение, без результата
+      oled_show_expr_and_result(expr, 0, 0);
       return;
     }
 
     int result;
     rc = eval_rpn(rpn, rpn_len, &result);
     if (rc != 0) {
-      printf("Eval error: %d\r\n", rc);
+      // Показываем только выражение, без результата
+      oled_show_expr_and_result(expr, 0, 0);
       return;
     }
 
-    printf("RESULT: %d\r\n", result);
+    // Показать результат под выражением
+    oled_show_expr_and_result(expr, 1, result);
 
     // Очистить выражение после вычисления
     expr_len = 0;
