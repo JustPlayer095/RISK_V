@@ -60,18 +60,32 @@ export RISCV-GDB     ?= $(CROSS_PREFIX)gdb
 endif
 
 make_build:
+ifeq ($(OS), Windows_NT)
+	@$(foreach dir,$(OBJ_DIRS),if not exist "$(subst /,\,$(BUILD_PATH)/$(dir))" mkdir "$(subst /,\,$(BUILD_PATH)/$(dir))" &)
+else
 	@$(foreach dir,$(OBJ_DIRS),mkdir -p "$(BUILD_PATH)/$(dir)";)
+endif
 
 header:
 	@ echo "K1921VG015 Bootloader build"
 
 %.o: %.S
 	@ echo "ASSEMBLY "$^""
+ifeq ($(OS), Windows_NT)
+	@if not exist "$(subst /,\,$(BUILD_PATH)/$(dir $@))" mkdir "$(subst /,\,$(BUILD_PATH)/$(dir $@))"
+else
+	@mkdir -p "$(BUILD_PATH)/$(dir $@)"
+endif
 	$(RISCV-GCC) $^ -o $(BUILD_PATH)/$@
 	@ echo "...DONE"
 
 %.o: %.c
 	@ echo "COMPILE "$^""
+ifeq ($(OS), Windows_NT)
+	@if not exist "$(subst /,\,$(BUILD_PATH)/$(dir $@))" mkdir "$(subst /,\,$(BUILD_PATH)/$(dir $@))"
+else
+	@mkdir -p "$(BUILD_PATH)/$(dir $@)"
+endif
 	$(RISCV-GCC) $^ -o $(BUILD_PATH)/$@
 	@ echo "...DONE"
 
@@ -96,7 +110,11 @@ hex:
 
 clean:
 	@ echo "CLEANING"
+ifeq ($(OS), Windows_NT)
+	@ -if exist "$(BUILD_PATH)" rmdir /s /q "$(BUILD_PATH)"
+else
 	@rm -rf "$(BUILD_PATH)"
+endif
 	@ echo "...DONE"
 
 all: header clean make_build $(BUILD_PATH)/$(TARGET_NAME).elf $(BUILD_PATH)/$(TARGET_NAME).dump hex size

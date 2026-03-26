@@ -65,7 +65,11 @@ export RISCV-GDB	 ?= $(CROSS_PREFIX)gdb
 endif
 
 make_build:
+ifeq ($(OS), Windows_NT)
+	@$(foreach dir,$(OBJ_DIRS),if not exist "$(subst /,\,$(BUILD_PATH)/$(dir))" mkdir "$(subst /,\,$(BUILD_PATH)/$(dir))" &)
+else
 	@$(foreach dir,$(OBJ_DIRS),mkdir -p "$(BUILD_PATH)/$(dir)";)
+endif
 	
 help:
 	@ echo "help: make [all, clean, load]"
@@ -99,7 +103,11 @@ size: $(BUILD_PATH)/$(TARGET_NAME).elf
 	
 clean:
 	@ echo "CLEANING "$^""
+ifeq ($(OS), Windows_NT)
+	@ -if exist "$(BUILD_PATH)" rmdir /s /q "$(BUILD_PATH)"
+else
 	@rm -rf "$(BUILD_PATH)"
+endif
 	@ echo "...DONE"
 	
 hex:

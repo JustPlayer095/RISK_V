@@ -7,6 +7,7 @@
 #include "../../plib/inc/plib015_tmr32.h"
 #include "../gpio/gpio_helpers.h"
 #include "../driver/ws0010_1602.h"
+#include "../timebase/timebase.h"
 
 #define EXPR_MAX_LEN  64
 #define MAX_TOKENS    64

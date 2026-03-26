@@ -231,7 +231,7 @@
             "dependsOn": [
                 "app-hex-to-bin",
                 "app-flash-via-bootloader"
-                "app-flash-via-bootloader"
+
             ],
             "dependsOrder": "sequence",
             "problemMatcher": []
