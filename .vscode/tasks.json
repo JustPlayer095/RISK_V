@@ -119,7 +119,14 @@
                 "-ex=quit"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/bootloader"
+                "cwd": "${workspaceFolder}/bootloader",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
             },
             "dependsOn": [
                 "start-openocd",
@@ -173,7 +180,14 @@
                 "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin"
             ],
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
             },
             "presentation": {
                 "reveal": "always",
@@ -184,20 +198,27 @@
         {
             "label": "app-flash-via-bootloader",
             "type": "shell",
-            "command": "python",
+            "command": "${config:workproject.pythonExe}",
             "args": [
                 "${workspaceFolder}/bootloader/boot.py",
                 "--port",
-                "auto",
+                "${config:workproject.bootPort}",
                 "--bin",
                 "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin",
                 "--baud",
-                "115200",
+                "${config:workproject.bootBaud}",
                 "--timeout",
-                "30"
+                "${config:workproject.bootTimeout}"
             ],
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
             },
             "presentation": {
                 "reveal": "always",
@@ -209,6 +230,7 @@
             "label": "app-hex-to-bin-and-flash-via-bootloader",
             "dependsOn": [
                 "app-hex-to-bin",
+                "app-flash-via-bootloader"
                 "app-flash-via-bootloader"
             ],
             "dependsOrder": "sequence",
