@@ -27,6 +27,7 @@ SRCS := ./src/bl_main.c \
         ./src/bl_image.c \
         ./src/bl_crc32.c \
         ./src/bl_jump.c \
+        ./src/bl_extflash_w25q32.c \
         ../vg015/device/source/sys_init.c
 
 ASMS := ../vg015/device/source/startup_k1921vg015.S

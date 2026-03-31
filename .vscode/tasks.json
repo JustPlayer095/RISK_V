@@ -4,18 +4,18 @@
         {
             "label": "start-openocd",
             "type": "shell",
-            "command": "${env:OPENOCD_EXE}",
+            "command": "${config:workproject.openocdExe}",
             "args": [
-                "-s", "${env:OPENOCD_SCRIPTS_ROOT}",
-                "-s", "${env:OPENOCD_SCRIPTS_ROOT}/interface",
-                "-s", "${env:OPENOCD_SCRIPTS_ROOT}/target",
-                "-f", "./interface/onboard_ftdi.cfg",
-                "-f", "./target/k1921vg015.cfg",
-                "-c", "init;halt",
+                "-s", "${config:workproject.openocdScriptsRoot}",
+                "-s", "${config:workproject.openocdScriptsRoot}/interface",
+                "-s", "${config:workproject.openocdScriptsRoot}/target",
+                "-f", "${config:workproject.openocdInterfaceCfg}",
+                "-f", "${config:workproject.openocdTargetCfg}",
+                "-c", "${config:workproject.openocdInitCmd}",
                 "-d1"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/${input:appProjectDir}"
+                "cwd": "${workspaceFolder}"
             },
             "isBackground": true,
             "problemMatcher": {
@@ -105,7 +105,7 @@
         {
             "label": "bootloader-flash",
             "type": "shell",
-            "command": "${env:GDB_EXE}",
+            "command": "${config:workproject.gdbExe}",
             "args": [
                 "${workspaceFolder}/bootloader/build/bootloader.elf",
                 "-q",
@@ -232,6 +232,47 @@
                 "app-hex-to-bin",
                 "app-flash-via-bootloader"
 
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "osdp-filetransfer",
+            "type": "shell",
+            "command": "${config:workproject.pythonExe}",
+            "args": [
+                "${workspaceFolder}/tools/osdp_filetransfer.py",
+                "--port",
+                "${config:workproject.osdpPort}",
+                "--baud",
+                "${config:workproject.osdpBaud}",
+                "--addr",
+                "${config:workproject.osdpAddr}",
+                "--frag",
+                "${config:workproject.osdpFrag}",
+                "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "app-hex-to-bin-and-osdp-filetransfer",
+            "dependsOn": [
+                "app-hex-to-bin",
+                "osdp-filetransfer"
             ],
             "dependsOrder": "sequence",
             "problemMatcher": []

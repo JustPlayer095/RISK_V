@@ -6,11 +6,16 @@
 #include "../../device/Include/retarget.h"
 #include "../../plib/inc/plib015_gpio.h"
 #include "../config/config.h"
+#include "../driver/extflash_w25q32.h"
+#include "../update/update_flag.h"
 
 #define OSDP_SOM 0x53
 #define OSDP_HEADER_LEN 8
 
-static void set_uart_baud(uint32_t baud); /* forward: определяется ниже */
+static void set_uart_baud(uint32_t baud);
+static uint16_t osdp_build_header(uint8_t *tx, uint16_t dlen, uint8_t seq);
+static void osdp_build_crc_and_send(uint8_t *tx, uint16_t dlen);
+static void osdp_build_and_send_nak(uint8_t seq, uint8_t reason);
 
 // Текущий адрес в RAM
 static uint8_t g_addr;
@@ -23,15 +28,8 @@ static void osdp_load_addr_baud(void)
 	g_addr = 0x01;
 	g_baud = 115200;
 
-	config_storage_t cfg;
-	if (config_storage_load(&cfg)) {
-		if (cfg.osdp_addr > 0 && cfg.osdp_addr <= 0x7F) {
-			g_addr = cfg.osdp_addr;
-		}
-		if (cfg.osdp_baud >= 9600 && cfg.osdp_baud <= 1000000) {
-			g_baud = cfg.osdp_baud;
-		}
-	}
+	// 
+	
 	// ВАЖНО: здесь baud только сохраняем в RAM / cfg.
 	// Реальную смену скорости UART делаем ТОЛЬКО по команде osdp_COMSET,
 	// чтобы не ломать консольный вывод при старте.
@@ -48,7 +46,266 @@ typedef enum {
 static rx_state_t rx_state = st_wait_som;
 static uint16_t   rx_expected_len = 0;
 static uint16_t   rx_pos = 0;
-static uint8_t    rx_buf[64];
+static uint8_t    rx_buf[256];
+
+// ------------------------------- FILETRANSFER (0x7C) -------------------------------
+
+typedef struct {
+	uint8_t  active;
+	uint8_t  ft_type;
+	uint32_t ft_size_total;   // общий размер файла (FtSizeTotal)
+	uint32_t expected_offset; // ожидаемый FtOffset следующего фрагмента
+} ft_state_t;
+
+static ft_state_t g_file_tx;
+
+typedef struct {
+	uint32_t image_size;
+	uint32_t crc32;
+} bl_app_header_t;
+
+// Внутренние параметры операций с flash (аналогично bootloader).
+#define APP_FLASH_WAIT_ERASE_LOOPS      ((uint32_t)2000000u)
+#define APP_FLASH_WAIT_WRITE_LOOPS      ((uint32_t)200000u)
+
+static uint16_t osdp_le_u16(const uint8_t *p) {
+	return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+static uint32_t osdp_le_u32(const uint8_t *p) {
+	return (uint32_t)p[0] |
+	       ((uint32_t)p[1] << 8) |
+	       ((uint32_t)p[2] << 16) |
+	       ((uint32_t)p[3] << 24);
+}
+
+static bool app_flash_wait_ready(uint32_t loops) {
+	while (loops > 0u) {
+		if ((FLASH->STAT & FLASH_STAT_BUSY_Msk) == 0u) {
+			return true;
+		}
+		--loops;
+	}
+	return false;
+}
+
+static uint32_t app_flash_offs(uint32_t abs_addr) {
+	// FLASH регистры ожидают смещение относительно MEM_FLASH_BASE
+	return abs_addr - MEM_FLASH_BASE;
+}
+
+static bool app_flash_erase_page(uint32_t abs_addr) {
+	FLASH->ADDR = app_flash_offs(abs_addr);
+	FLASH->CMD = ((uint32_t)FLASH_CMD_KEY_Access << FLASH_CMD_KEY_Pos) | FLASH_CMD_ERSEC_Msk;
+	return app_flash_wait_ready(APP_FLASH_WAIT_ERASE_LOOPS);
+}
+
+// Записывает строго 16 байт в flash одним программированием.
+static bool app_flash_write16(uint32_t abs_addr, const uint8_t *data16) {
+	uint8_t tmp[16];
+	uint32_t word0, word1, word2, word3;
+
+	if (!data16) return false;
+	for (uint32_t i = 0u; i < 16u; ++i) {
+		tmp[i] = data16[i];
+	}
+
+	word0 = ((uint32_t)tmp[0]) | ((uint32_t)tmp[1] << 8) | ((uint32_t)tmp[2] << 16) | ((uint32_t)tmp[3] << 24);
+	word1 = ((uint32_t)tmp[4]) | ((uint32_t)tmp[5] << 8) | ((uint32_t)tmp[6] << 16) | ((uint32_t)tmp[7] << 24);
+	word2 = ((uint32_t)tmp[8]) | ((uint32_t)tmp[9] << 8) | ((uint32_t)tmp[10] << 16) | ((uint32_t)tmp[11] << 24);
+	word3 = ((uint32_t)tmp[12]) | ((uint32_t)tmp[13] << 8) | ((uint32_t)tmp[14] << 16) | ((uint32_t)tmp[15] << 24);
+
+	FLASH->DATA[0].DATA = word0;
+	FLASH->DATA[1].DATA = word1;
+	FLASH->DATA[2].DATA = word2;
+	FLASH->DATA[3].DATA = word3;
+
+	FLASH->ADDR = app_flash_offs(abs_addr);
+	FLASH->CMD = ((uint32_t)FLASH_CMD_KEY_Access << FLASH_CMD_KEY_Pos) | FLASH_CMD_WR_Msk;
+	return app_flash_wait_ready(APP_FLASH_WAIT_WRITE_LOOPS);
+}
+
+static bool app_shared_flag_set_pending(uint32_t slot_base, uint32_t total_size, const bl_app_header_t *hdr) {
+	update_flag_t f;
+	uint8_t block0[16];
+	uint8_t block1[16];
+
+	if (!hdr) return false;
+	if (total_size < 8u) return false;
+
+	memset(&f, 0xFF, sizeof(f));
+	f.magic = UPDATE_FLAG_MAGIC;
+	f.version = UPDATE_FLAG_VERSION;
+	f.state = UPDATE_FLAG_STATE_PENDING;
+	f.slot_base = slot_base;
+	f.total_size = total_size;
+	f.image_size = hdr->image_size;
+	f.image_crc32 = hdr->crc32;
+
+	memcpy(block0, ((const uint8_t*)&f), 16u);
+	memcpy(block1, ((const uint8_t*)&f) + 16u, 16u);
+
+	// Стираем страницу под флаг перед записью (иначе повторная прошивка может не записаться без erase).
+	if (!app_flash_erase_page(UPDATE_FLAG_ADDR_ABS)) {
+		return false;
+	}
+
+	// Пишем в 2 блока по 16 байт.
+	if (!app_flash_write16(UPDATE_FLAG_ADDR_ABS, block0)) {
+		return false;
+	}
+	if (!app_flash_write16(UPDATE_FLAG_ADDR_ABS + 16u, block1)) {
+		return false;
+	}
+
+	return true;
+}
+
+static void osdp_build_and_send_ftstat(uint8_t seq, int16_t status_detail) {
+	uint8_t tx[32];
+	uint16_t i = 0;
+	// data payload размер: 1 (Action/flags) + 2 (RequestedDelay) + 2 (Detail) + 2 (UpdateMessageMaximum) = 7 байт
+	uint16_t ft_data_len = 7u;
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + ft_data_len); // header field includes CRC
+
+	// Заголовок
+	i = osdp_build_header(tx, dlen, seq);
+	// Код ответа
+	tx[i++] = osdp_FTSTAT;
+
+	// Action/control flags: 0
+	tx[i++] = 0x00u;
+	// RequestedDelay (ms): 0
+	tx[i++] = 0x00u;
+	tx[i++] = 0x00u;
+	// Status Detail: signed short, little-endian
+	uint16_t det = (uint16_t)status_detail;
+	tx[i++] = (uint8_t)(det & 0xFFu);
+	tx[i++] = (uint8_t)((det >> 8) & 0xFFu);
+	// UpdateMessageMaximum: 128 (типичный размер сообщения)
+	uint16_t update_max = 128u;
+	tx[i++] = (uint8_t)(update_max & 0xFFu);
+	tx[i++] = (uint8_t)((update_max >> 8) & 0xFFu);
+
+	osdp_build_crc_and_send(tx, i);
+}
+
+static void handle_osdp_filetransfer(uint8_t seq, uint8_t *data, uint16_t data_len) {
+	// DATA: FtType(1) + FtSizeTotal(4 LE) + FtOffset(4 LE) + FtFragmentSize(2 LE) + FtData(N)
+	const uint16_t min_len = 1u + 4u + 4u + 2u;
+	if (!data || data_len < min_len) {
+		// Протокольная ошибка формата
+		osdp_build_and_send_nak(seq, 0x02u); // invalid length
+		return;
+	}
+
+	uint8_t  ft_type = data[0];
+	uint32_t ft_size_total = osdp_le_u32(&data[1]);
+	uint32_t ft_offset = osdp_le_u32(&data[5]);
+	uint16_t ft_fragment_size = osdp_le_u16(&data[9]);
+	uint16_t ft_data_len = (uint16_t)(data_len - min_len);
+	uint8_t *ft_data = &data[min_len];
+
+	// Валидация соответствия FtFragmentSize реальной длине FtData
+	if (ft_fragment_size != ft_data_len) {
+		osdp_build_and_send_nak(seq, 0x02u);
+		return;
+	}
+
+	// Принимаем только opaque тип файла (FtType=1)
+	if (ft_type != 1u) {
+		osdp_build_and_send_ftstat(seq, (int16_t)-2); // UnrecognizedFileContents
+		g_file_tx.active = 0;
+		return;
+	}
+
+	// Минимум: заголовок bl_app_header_t (8 байт)
+	if (ft_size_total < 8u) {
+		osdp_build_and_send_ftstat(seq, (int16_t)-1); // AbortFileTransfer
+		g_file_tx.active = 0;
+		return;
+	}
+
+	// Защита от выхода за пределы внешнего слота
+	if ((ft_size_total > EXTFLASH_FW_SLOT_SIZE) || (ft_offset > EXTFLASH_FW_SLOT_SIZE)) {
+		osdp_build_and_send_ftstat(seq, (int16_t)-3); // FileDataUnacceptable
+		g_file_tx.active = 0;
+		return;
+	}
+	if ((ft_offset + (uint32_t)ft_fragment_size) > ft_size_total) {
+		osdp_build_and_send_ftstat(seq, (int16_t)-3); // FileDataUnacceptable
+		g_file_tx.active = 0;
+		return;
+	}
+
+	// Если пришёл стартовый пакет (offset=0) — начинаем новую передачу.
+	if (ft_offset == 0u) {
+		// Ожидаемый следующий offset после этого фрагмента
+		g_file_tx.active = 1u;
+		g_file_tx.ft_type = ft_type;
+		g_file_tx.ft_size_total = ft_size_total;
+		g_file_tx.expected_offset = 0u;
+
+		// Стираем область под новый файл
+		if (!extflash_erase_range_4k(EXTFLASH_FW_SLOT_BASE, ft_size_total)) {
+			osdp_build_and_send_ftstat(seq, (int16_t)-4); // UnknownError
+			g_file_tx.active = 0;
+			return;
+		}
+	}
+
+	if (!g_file_tx.active) {
+		// Получили фрагмент не с offset=0, но контекста нет
+		osdp_build_and_send_ftstat(seq, (int16_t)-1); // AbortFileTransfer
+		return;
+	}
+
+	// Требуем строгую последовательность offsets
+	if (ft_offset != g_file_tx.expected_offset) {
+		osdp_build_and_send_ftstat(seq, (int16_t)-3); // FileDataUnacceptable
+		g_file_tx.active = 0;
+		return;
+	}
+
+	// Записываем фрагмент в W25Q32
+	if (ft_fragment_size > 0u) {
+		if (!extflash_write(EXTFLASH_FW_SLOT_BASE + ft_offset, ft_data, (size_t)ft_fragment_size)) {
+			osdp_build_and_send_ftstat(seq, (int16_t)-4); // UnknownError
+			g_file_tx.active = 0;
+			return;
+		}
+	}
+
+	// Продвигаем expected_offset
+	g_file_tx.expected_offset += (uint32_t)ft_fragment_size;
+
+	// Файл завершён
+	if (g_file_tx.expected_offset == g_file_tx.ft_size_total) {
+		// Минимальная валидация под ожидаемый формат образа приложения:
+		// total_size == 8 + image_size
+		bl_app_header_t hdr;
+		if (extflash_read(EXTFLASH_FW_SLOT_BASE, (uint8_t*)&hdr, 8u)) {
+			if ((hdr.image_size > 0u) && ((uint32_t)8u + hdr.image_size == g_file_tx.ft_size_total)) {
+				// Ставим pending-флаг во внутреннюю flash.
+				if (!app_shared_flag_set_pending(EXTFLASH_FW_SLOT_BASE, g_file_tx.ft_size_total, &hdr)) {
+					osdp_build_and_send_ftstat(seq, (int16_t)-4); // UnknownError
+					g_file_tx.active = 0;
+					return;
+				}
+				osdp_build_and_send_ftstat(seq, (int16_t)1); // FileContentsProcessed
+				g_file_tx.active = 0;
+				return;
+			}
+		}
+
+		// Если заголовок невалиден или чтение не удалось — не ставим флаг.
+		osdp_build_and_send_ftstat(seq, (int16_t)-2); // UnrecognizedFileContents
+		g_file_tx.active = 0;
+		return;
+	}
+
+	// Ещё есть данные — можно продолжать.
+	osdp_build_and_send_ftstat(seq, (int16_t)0); // OkToProceed
+}
 
 static void osdp_send_blocking(const uint8_t *data, uint16_t len)
 {
@@ -138,8 +395,8 @@ static void osdp_build_and_send_pdcap(uint8_t seq)
 		0x07, 0x00, 0x00, // 7  Time keeping: not supported
 		0x08, 0x01, 0x00, // 8  Check character support: CRC-16
 		0x09, 0x00, 0x00, // 9  Communication security: not supported
-		0x0A, 0x40, 0x00, // 10 Receive buffer size: 0x0040 (64)
-		0x0B, 0x40, 0x00, // 11 Largest combined message size: 0x0040 (64)
+		0x0A, 0x00, 0x01, // 10 Receive buffer size: 0x0100 (256)
+		0x0B, 0x00, 0x01, // 11 Largest combined message size: 0x0100 (256)
 		0x0C, 0x00, 0x00, // 12 Smart card support: not supported
 		0x0D, 0x00, 0x00, // 13 Readers: none
 		0x0E, 0x00, 0x00, // 14 Biometrics: none
@@ -588,6 +845,14 @@ void osdp_init(void)
 	rx_state = st_wait_som;
 	rx_expected_len = 0;
 	rx_pos = 0;
+
+	// Инициализация внешней памяти под файл прошивки (W25Q32)
+	extflash_init_spi0_cs_pb1();
+
+	g_file_tx.active = 0u;
+	g_file_tx.ft_type = 0u;
+	g_file_tx.ft_size_total = 0u;
+	g_file_tx.expected_offset = 0u;
 	
 	// Инициализация состояния выходов
 	for (uint8_t i = 0; i < 4; i++) {
@@ -699,6 +964,14 @@ void osdp_on_rx_byte(uint8_t byte) // парсер входящих байтов
 						// не проверяя вендора и не разбирая данные.
 						if (should_reply) {
 							osdp_build_and_send_ack(seq);
+						}
+						break;
+					}
+					case osdp_FILETRANSFER: {
+						uint16_t data_len = (uint16_t)(rx_expected_len - 8);
+						uint8_t *data = &rx_buf[6];
+						if (should_reply) {
+							handle_osdp_filetransfer(seq, data, data_len);
 						}
 						break;
 					}
