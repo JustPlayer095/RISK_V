@@ -13,7 +13,6 @@ enum {
 	osdp_OUT     = 0x68,  // Output Control Command
 	osdp_LED     = 0x69,
 	osdp_COMSET  = 0x6E,
-	osdp_FILETRANSFER = 0x7C,
 	// manufacturer specific
 	osdp_MFG     = 0x80,
 	// коды ответов
@@ -23,7 +22,6 @@ enum {
 	osdp_OSTATR  = 0x4A,
 	osdp_PDCAP   = 0x46,
 	osdp_PDID    = 0x45, 
-	osdp_FTSTAT  = 0x7A,
 	osdp_COM     = 0x65,
 };
 
