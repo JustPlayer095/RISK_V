@@ -202,13 +202,13 @@
             "args": [
                 "${workspaceFolder}/bootloader/boot.py",
                 "--port",
-                "${config:workproject.bootPort}",
+                "auto",
                 "--bin",
                 "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin",
                 "--baud",
                 "${config:workproject.bootBaud}",
                 "--timeout",
-                "${config:workproject.bootTimeout}"
+                "30"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",

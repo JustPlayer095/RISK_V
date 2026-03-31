@@ -47,9 +47,9 @@ void periph_init()
   retarget_init();
   ws0010_init();
   ws0010_goto(0, 0);
-  ws0010_print("HELLO WS0010");
+  ws0010_print("HELLO ПРИВЕТ");
   ws0010_goto(1, 0);
-  ws0010_print("6800 4-bit");
+  ws0010_print("6800 4-bit"); 
   calc_init();
 
   InterruptEnable();
