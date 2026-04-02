@@ -12,6 +12,13 @@
 #define OSDP_SOM 0x53
 #define OSDP_HEADER_LEN 8
 
+/* Индикация наличия pending-флага обновления (общий pending-flags для app+bootloader). */
+#define UPDATE_FLAG_LED_PIN        GPIO_Pin_15
+#define UPDATE_FLAG_LED_MASK       ((uint32_t)1u << 15)
+
+static void update_flag_led_init(void);
+static void update_flag_led_set(bool on);
+
 static void set_uart_baud(uint32_t baud);
 static uint16_t osdp_build_header(uint8_t *tx, uint16_t dlen, uint8_t seq);
 static void osdp_build_crc_and_send(uint8_t *tx, uint16_t dlen);
@@ -157,7 +164,35 @@ static bool app_shared_flag_set_pending(uint32_t slot_base, uint32_t total_size,
 		return false;
 	}
 
+	/* Синхронно включаем индикацию сразу после выставления pending-флага,
+	   чтобы было видно ещё до перезагрузки. */
+	update_flag_led_set(true);
+
 	return true;
+}
+
+static void update_flag_led_init(void)
+{
+	
+	RCU->CGCFGAHB_bit.GPIOAEN = 1;
+	RCU->RSTDISAHB_bit.GPIOAEN = 1;
+
+	/* Убираем альтернативную функцию и настраиваем как push-pull output. */
+	GPIOA->ALTFUNCCLR = UPDATE_FLAG_LED_MASK;
+	GPIOA->OUTMODE_bit.PIN15 = GPIO_OUTMODE_PIN15_PP;
+	GPIOA->OUTENSET = UPDATE_FLAG_LED_MASK;
+
+	/* По умолчанию выключено. */
+	GPIOA->DATAOUTCLR = UPDATE_FLAG_LED_MASK;
+}
+
+static void update_flag_led_set(bool on)
+{
+	if (on) {
+		GPIOA->DATAOUTSET = UPDATE_FLAG_LED_MASK;
+	} else {
+		GPIOA->DATAOUTCLR = UPDATE_FLAG_LED_MASK;
+	}
 }
 
 static void osdp_build_and_send_ftstat(uint8_t seq, int16_t status_detail) {
@@ -848,6 +883,13 @@ void osdp_init(void)
 
 	// Инициализация внешней памяти под файл прошивки (W25Q32)
 	extflash_init_spi0_cs_pb1();
+
+	/* Инициализируем индикацию pending-флага и выставляем текущее состояние. */
+	update_flag_led_init();
+	{
+		const update_flag_t *uf = (const update_flag_t *)(uintptr_t)UPDATE_FLAG_ADDR_ABS;
+		update_flag_led_set(update_flag_is_pending(uf));
+	}
 
 	g_file_tx.active = 0u;
 	g_file_tx.ft_type = 0u;
