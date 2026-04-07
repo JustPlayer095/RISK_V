@@ -11,6 +11,8 @@
 
 #define OSDP_SOM 0x53
 #define OSDP_HEADER_LEN 8
+#define OSDP_MFG_SUBCMD_WRITE_PDID_LEGACY 0x01u
+#define OSDP_MFG_SUBCMD_WRITE_PDID 0x33u
 
 /* Индикация наличия pending-флага обновления (общий pending-flags для app+bootloader). */
 #define UPDATE_FLAG_LED_PIN        GPIO_Pin_15
@@ -30,16 +32,18 @@ static uint32_t g_baud;
 
 static void osdp_load_addr_baud(void)
 {
-	// Всегда задаём значения по умолчанию — иначе при неудачной загрузке
-	// из EEPROM g_addr и g_baud остаются 0 и устройство не отвечает на POLL
-	g_addr = 0x01;
-	g_baud = 115200;
-
-	// 
-	
-	// ВАЖНО: здесь baud только сохраняем в RAM / cfg.
-	// Реальную смену скорости UART делаем ТОЛЬКО по команде osdp_COMSET,
-	// чтобы не ломать консольный вывод при старте.
+	config_storage_t cfg;
+	if (!config_storage_load(&cfg)) {
+		config_storage_default(&cfg);
+	}
+	g_addr = cfg.osdp_addr;
+	g_baud = cfg.osdp_baud;
+	if (g_addr == 0u || g_addr > 0x7Eu) {
+		g_addr = 0x01u;
+	}
+	if (g_baud < 9600u || g_baud > 115200u) {
+		g_baud = 115200u;
+	}
 }
 
 typedef enum {
@@ -400,18 +404,15 @@ static void osdp_build_and_send_pdid(uint8_t seq)
 {
 	uint8_t tx[64];
 	uint16_t i = 0;
-	uint8_t pdid[12] = {
-		'P','R','S',             // условный вендор
-		1,                       // модель
-		1,                       // версия
-		0x01,0x00,0x00,0x00,     // серийный
-		1,1,1                    
-	};
-	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(pdid));
+	config_storage_t cfg;
+	if (!config_storage_load(&cfg)) {
+		config_storage_default(&cfg);
+	}
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(cfg.osdp_pdid));
 	i = osdp_build_header(tx, dlen, seq);
 	tx[i++] = osdp_PDID;
-	memcpy(&tx[i], pdid, sizeof(pdid));             // копируем данные в буфер начиная с позиции i, т.е. после заголовка и ctrl
-	i += (uint16_t)sizeof(pdid);
+	memcpy(&tx[i], cfg.osdp_pdid, sizeof(cfg.osdp_pdid));
+	i += (uint16_t)sizeof(cfg.osdp_pdid);
 	osdp_build_crc_and_send(tx, i);
 }
 
@@ -419,30 +420,16 @@ static void osdp_build_and_send_pdcap(uint8_t seq)
 {
 	uint8_t tx[64];
 	uint16_t i = 0;
-	// Включены коды 0x01..0x10; неподдерживаемые помечены CL=0 и Number=0.
-	uint8_t caps[] = {
-		0x01, 0x01, 0x04, // 1  Inputs: CL=01, Number=2
-		0x02, 0x01, 0x04, // 2  Outputs: CL=01, Number=2
-		0x03, 0x00, 0x00, // 3  Card data format: not supported
-		0x04, 0x01, 0x01, // 4  Reader LED control: CL=01, Number=1
-		0x05, 0x00, 0x00, // 5  Reader audible output: not supported
-		0x06, 0x00, 0x00, // 6  Reader text output: not supported
-		0x07, 0x00, 0x00, // 7  Time keeping: not supported
-		0x08, 0x01, 0x00, // 8  Check character support: CRC-16
-		0x09, 0x00, 0x00, // 9  Communication security: not supported
-		0x0A, 0x00, 0x01, // 10 Receive buffer size: 0x0100 (256)
-		0x0B, 0x00, 0x01, // 11 Largest combined message size: 0x0100 (256)
-		0x0C, 0x00, 0x00, // 12 Smart card support: not supported
-		0x0D, 0x00, 0x00, // 13 Readers: none
-		0x0E, 0x00, 0x00, // 14 Biometrics: none
-		0x0F, 0x00, 0x00, // 15 Secure PIN entry: not supported
-		0x10, 0x01, 0x00  // 16 OSDP version: IEC 60839-11-5(почему-то не отображается в утилите osdp client)
-	};
-	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(caps));
+	config_storage_t cfg;
+	if (!config_storage_load(&cfg)) {
+		config_storage_default(&cfg);
+	}
+	const uint8_t *caps = cfg.osdp_cap;
+	uint16_t dlen = (uint16_t)(OSDP_HEADER_LEN + sizeof(cfg.osdp_cap));
 	i = osdp_build_header(tx, dlen, seq);
 	tx[i++] = osdp_PDCAP;
-	memcpy(&tx[i], caps, sizeof(caps));
-	i += (uint16_t)sizeof(caps);
+	memcpy(&tx[i], caps, sizeof(cfg.osdp_cap));
+	i += (uint16_t)sizeof(cfg.osdp_cap);
 	osdp_build_crc_and_send(tx, i);
 }
 
@@ -1001,11 +988,35 @@ void osdp_on_rx_byte(uint8_t byte) // парсер входящих байтов
 						break;
 					}
 					case osdp_MFG: {
-						// Команда производителя (0x80).
-						// На данном этапе просто подтверждаем любую такую команду ACK,
-						// не проверяя вендора и не разбирая данные.
-						if (should_reply) {
-							osdp_build_and_send_ack(seq);
+						// Поддерживаем два формата:
+						// 1) data[0]=subcmd(0x33 или legacy 0x01), data[1..12]=PDID
+						// 2) data[0..2]=vendor, data[3]=subcmd(0x33/0x01), data[4..15]=PDID
+						// 3) legacy: data[0..11]=PDID (без subcmd)
+						uint16_t data_len = (uint16_t)(rx_expected_len - 8);
+						uint8_t *data = &rx_buf[6];
+						if ((data_len == 13u &&
+						     (data[0] == OSDP_MFG_SUBCMD_WRITE_PDID ||
+						      data[0] == OSDP_MFG_SUBCMD_WRITE_PDID_LEGACY)) ||
+						    (data_len == 16u &&
+						     (data[3] == OSDP_MFG_SUBCMD_WRITE_PDID ||
+						      data[3] == OSDP_MFG_SUBCMD_WRITE_PDID_LEGACY)) ||
+						    (data_len == 12u)) {
+							config_storage_t cfg;
+							if (!config_storage_load(&cfg)) {
+								config_storage_default(&cfg);
+							}
+							if (data_len == 13u) {
+								memcpy(cfg.osdp_pdid, &data[1], sizeof(cfg.osdp_pdid));
+							} else if (data_len == 16u) {
+								memcpy(cfg.osdp_pdid, &data[4], sizeof(cfg.osdp_pdid));
+							} else {
+								memcpy(cfg.osdp_pdid, &data[0], sizeof(cfg.osdp_pdid));
+							}
+							config_storage_save(&cfg);
+							if (should_reply) osdp_build_and_send_ack(seq);
+						} else {
+							// invalid data / unsupported subcommand
+							if (should_reply) osdp_build_and_send_nak(seq, 0x04);
 						}
 						break;
 					}

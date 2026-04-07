@@ -5,14 +5,14 @@
 
 // коды команд/ответов OSDP
 enum {
-	osdp_POLL    = 0x60,
-	osdp_ID      = 0x61, 
-	osdp_CAP     = 0x62,
-	osdp_ISTAT   = 0x65, 
-	osdp_OSTAT   = 0x66,
-	osdp_OUT     = 0x68,  // Output Control Command
-	osdp_LED     = 0x69,
-	osdp_COMSET  = 0x6E,
+	osdp_POLL         = 0x60,
+	osdp_ID           = 0x61, 
+	osdp_CAP          = 0x62,
+	osdp_ISTAT        = 0x65, 
+	osdp_OSTAT        = 0x66,
+	osdp_OUT          = 0x68, 
+	osdp_LED          = 0x69,
+	osdp_COMSET       = 0x6E,
 	osdp_FILETRANSFER = 0x7C,
 	// manufacturer specific
 	osdp_MFG     = 0x80,

@@ -311,8 +311,8 @@ def send_file(port: str, baud: int, addr: int, image_path: Path,
             except ValueError as e:
                 raise RuntimeError(f"Bad response: {e}, raw={resp.hex()}")
 
-            print(f"Offset {offset}+{frag_len}/{ft_size_total}, "
-                  f"FTSTAT detail={status_detail}, delay={delay_ms} ms, max={update_max}")
+            if offset % 2000 == 0:
+                print(f"Offset {offset}/{ft_size_total}")
 
             if status_detail < 0:
                 raise RuntimeError(f"PD reported error detail={status_detail}")

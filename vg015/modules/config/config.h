@@ -4,26 +4,40 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Базовый адрес хранения конфига во внешней EEPROM
-#define CONFIG_EEPROM_BASE 0x0000
+// Выбор внешней памяти хранения конфига.
+#define CONFIG_STORAGE_EEPROM   0u
+#define CONFIG_STORAGE_W25Q32    1u
+
+#ifndef CONFIG_STORAGE
+#define CONFIG_STORAGE CONFIG_STORAGE_W25Q32
+#endif
+
+// Базовый адрес хранения конфига в W25Q32 (свободная 4K-страница).
+#define CONFIG_EXTFLASH_BASE 0x003E0000u
+#define CONFIG_EXTFLASH_AREA_SIZE 0x00001000u
+
+// Базовый адрес хранения конфига во внешней EEPROM.
+#define CONFIG_EEPROM_BASE 0x0000u
 
 // Пользовательский конфиг, который хотим хранить:
 // - адрес OSDP
 // - скорость UART/OSDP
-// - произвольные настройки пинов 
+// - OSDP PDID (12 байт ответа на команду osdp_ID)
+// - OSDP capabilities (16 записей по 3 байта)
 typedef struct __attribute__((packed)) {
     uint8_t  osdp_addr;     // адрес OSDP
     uint32_t osdp_baud;     // скорость OSDP/UART
-    uint8_t  pin_cfg[16];   // место под конфиг пинов 
+    uint8_t  osdp_pdid[12u]; // PDID payload: 3 vendor + model + version + serial(4) + fw(3)
+    uint8_t  osdp_cap[16u * 3u]; // capability triplets: FunctionCode, ComplianceLevel, NumberOfItems
 } config_storage_t;
 
 // Заполнить структуру значениями по умолчанию
 void config_storage_default(config_storage_t *cfg);
 
-// Прочитать из EEPROM; если чтение не удалось, вернуть false
+// Прочитать конфиг из выбранной внешней памяти; если чтение не удалось, вернуть false.
 bool config_storage_load(config_storage_t *cfg);
 
-// Записать структуру в EEPROM
+// Записать структуру в выбранную внешнюю память (seq увеличивается при каждом успешном save).
 void config_storage_save(const config_storage_t *cfg);
 
 #endif // CONFIG_STORAGE_H
