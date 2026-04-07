@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../driver/eeprom.h"
+#include "../driver/eeprom/eeprom.h"
 #include "../timebase/timebase.h"
 #include "../../device/Include/system_k1921vg015.h"
 

@@ -1,8 +1,8 @@
 #include "extflash_w25q32.h"
 
 #include <stdint.h>
-#include "../../device/Include/K1921VG015.h"
-#include "../../plib/inc/plib015_gpio.h"
+#include "../../../device/Include/K1921VG015.h"
+#include "../../../plib/inc/plib015_gpio.h"
 
 // Команды W25Q32
 #define W25Q32_CMD_READ_DATA      0x03u

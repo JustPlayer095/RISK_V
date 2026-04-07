@@ -1,5 +1,5 @@
 #include "ws0010_1602.h"
-#include "../gpio/gpio_helpers.h"
+#include "../../gpio/gpio_helpers.h"
 #include <stddef.h>
 
 // Delays (implemented in vg015/device/source/mtimer.c)

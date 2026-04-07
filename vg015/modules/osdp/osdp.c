@@ -6,7 +6,7 @@
 #include "../../device/Include/retarget.h"
 #include "../../plib/inc/plib015_gpio.h"
 #include "../config/config.h"
-#include "../driver/extflash_w25q32.h"
+#include "../driver/w25q32/extflash_w25q32.h"
 #include "../update/update_flag.h"
 
 #define OSDP_SOM 0x53
