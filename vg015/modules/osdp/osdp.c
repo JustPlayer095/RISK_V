@@ -11,8 +11,6 @@
 
 #define OSDP_SOM 0x53
 #define OSDP_HEADER_LEN 8
-#define OSDP_MFG_SUBCMD_WRITE_PDID_LEGACY 0x01u
-#define OSDP_MFG_SUBCMD_WRITE_PDID 0x33u
 
 /* Индикация наличия pending-флага обновления (общий pending-flags для app+bootloader). */
 #define UPDATE_FLAG_LED_PIN        GPIO_Pin_15
@@ -446,8 +444,10 @@ static void osdp_build_and_send_com(uint8_t seq, uint8_t new_addr, uint32_t new_
 	tx[i++] = (uint8_t)((new_baud >> 16) & 0xFF);
 	tx[i++] = (uint8_t)((new_baud >> 24) & 0xFF);
 	osdp_build_crc_and_send(tx, i);
+}
 
-	// Сохранить новые адрес и скорость в EEPROM
+static void osdp_apply_comset(uint8_t new_addr, uint32_t new_baud)
+{
 	config_storage_t cfg;
 	if (!config_storage_load(&cfg)) {
 		config_storage_default(&cfg);
@@ -455,10 +455,26 @@ static void osdp_build_and_send_com(uint8_t seq, uint8_t new_addr, uint32_t new_
 	cfg.osdp_addr = (uint8_t)(new_addr & 0x7F);
 	cfg.osdp_baud = new_baud;
 	config_storage_save(&cfg);
+	if (!config_storage_load(&cfg)) {
+		config_storage_default(&cfg);
+	}
 
-	// Обновить текущие значения в RAM
+	// Обновить текущие значения в RAM и сразу применить новую скорость UART.
 	g_addr = cfg.osdp_addr;
 	g_baud = cfg.osdp_baud;
+	set_uart_baud(g_baud);
+}
+
+static void osdp_apply_factory_reset(void)
+{
+	config_storage_t cfg;
+	config_storage_reset();
+	if (!config_storage_load(&cfg)) {
+		config_storage_default(&cfg);
+	}
+	g_addr = cfg.osdp_addr;
+	g_baud = cfg.osdp_baud;
+	set_uart_baud(g_baud);
 }
 
 static void set_led_state(uint8_t on)
@@ -860,6 +876,54 @@ static void handle_osdp_led(uint8_t *data, uint16_t data_len)
 	}
 }
 
+static bool osdp_vendor_is_prs(const uint8_t *vendor)
+{
+	return vendor &&
+	       vendor[0] == 'P' &&
+	       vendor[1] == 'R' &&
+	       vendor[2] == 'S';
+}
+
+typedef enum {
+	osdp_mfg_result_ok = 0,
+	osdp_mfg_result_invalid = 1
+} osdp_mfg_result_t;
+
+static osdp_mfg_result_t osdp_handle_mfg(const uint8_t *data, uint16_t data_len)
+{
+	config_storage_t cfg;
+
+	if (!data) {
+		return osdp_mfg_result_invalid;
+	}
+
+	// Factory reset: vendor 'PRS' + subcmd 0x40 (payload len = 4)
+	if (data_len == 4u &&
+	    osdp_vendor_is_prs(&data[0]) &&
+	    data[3] == osdp_MFG_RES_TO_FACT) {
+		osdp_apply_factory_reset();
+		return osdp_mfg_result_ok;
+	}
+
+	// Write PDID formats:
+	// 1) [subcmd][PDID12] -> len 13
+	// 2) [vendor3][subcmd][PDID12] -> len 16
+	if (!config_storage_load(&cfg)) {
+		config_storage_default(&cfg);
+	}
+
+
+	if (data_len == 16u &&
+	    osdp_vendor_is_prs(&data[0]) &&
+	    (data[3] == osdp_MFG_WRITE_PDID)) {
+		memcpy(cfg.osdp_pdid, &data[4], sizeof(cfg.osdp_pdid));
+		config_storage_save(&cfg);
+		return osdp_mfg_result_ok;
+	}
+
+	return osdp_mfg_result_invalid;
+}
+
 
 void osdp_init(void)
 {
@@ -960,13 +1024,19 @@ void osdp_on_rx_byte(uint8_t byte) // парсер входящих байтов
 							                    ((uint32_t)data[2] << 8) |
 							                    ((uint32_t)data[3] << 16) |
 							                    ((uint32_t)data[4] << 24);
-							// Отправим ответ osdp_COM с теми же параметрами
-							if (should_reply) osdp_build_and_send_com(seq, new_addr, new_baud);
-							// Применим локально: адрес и скорость UART
-							g_addr = new_addr;
-							if (new_baud >= 1200 && new_baud <= 921600) {
-								set_uart_baud(new_baud);
+
+							// Принимаем только валидные значения, которые реально поддерживает конфиг.
+							if (new_addr < 1u || new_addr > 126u ||
+							    new_baud < 9600u || new_baud > 115200u) {
+								if (should_reply) osdp_build_and_send_nak(seq, 0x04);
+								break;
 							}
+
+							// Отправим osdp_COM, сохраним и сразу применим новые параметры.
+							if (should_reply) {
+								osdp_build_and_send_com(seq, new_addr, new_baud);
+							}
+							osdp_apply_comset(new_addr, new_baud);
 						} else {
 							// Неправильная длина — NAK (reason 0x02: invalid length)
 							if (should_reply) osdp_build_and_send_nak(seq, 0x02);
@@ -988,35 +1058,15 @@ void osdp_on_rx_byte(uint8_t byte) // парсер входящих байтов
 						break;
 					}
 					case osdp_MFG: {
-						// Поддерживаем два формата:
-						// 1) data[0]=subcmd(0x33 или legacy 0x01), data[1..12]=PDID
-						// 2) data[0..2]=vendor, data[3]=subcmd(0x33/0x01), data[4..15]=PDID
-						// 3) legacy: data[0..11]=PDID (без subcmd)
 						uint16_t data_len = (uint16_t)(rx_expected_len - 8);
-						uint8_t *data = &rx_buf[6];
-						if ((data_len == 13u &&
-						     (data[0] == OSDP_MFG_SUBCMD_WRITE_PDID ||
-						      data[0] == OSDP_MFG_SUBCMD_WRITE_PDID_LEGACY)) ||
-						    (data_len == 16u &&
-						     (data[3] == OSDP_MFG_SUBCMD_WRITE_PDID ||
-						      data[3] == OSDP_MFG_SUBCMD_WRITE_PDID_LEGACY)) ||
-						    (data_len == 12u)) {
-							config_storage_t cfg;
-							if (!config_storage_load(&cfg)) {
-								config_storage_default(&cfg);
-							}
-							if (data_len == 13u) {
-								memcpy(cfg.osdp_pdid, &data[1], sizeof(cfg.osdp_pdid));
-							} else if (data_len == 16u) {
-								memcpy(cfg.osdp_pdid, &data[4], sizeof(cfg.osdp_pdid));
+						const uint8_t *data = &rx_buf[6];
+						osdp_mfg_result_t mfg_res = osdp_handle_mfg(data, data_len);
+						if (should_reply) {
+							if (mfg_res == osdp_mfg_result_ok) {
+								osdp_build_and_send_ack(seq);
 							} else {
-								memcpy(cfg.osdp_pdid, &data[0], sizeof(cfg.osdp_pdid));
+								osdp_build_and_send_nak(seq, 0x04);
 							}
-							config_storage_save(&cfg);
-							if (should_reply) osdp_build_and_send_ack(seq);
-						} else {
-							// invalid data / unsupported subcommand
-							if (should_reply) osdp_build_and_send_nak(seq, 0x04);
 						}
 						break;
 					}

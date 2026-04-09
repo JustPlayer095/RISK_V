@@ -25,7 +25,16 @@ enum {
 	osdp_PDID    = 0x45, 
 	osdp_COM     = 0x65,
 	osdp_FTSTAT  = 0x7A,
+	osdp_MFG_RES_TO_FACT = 0x40,
+	osdp_MFG_WRITE_PDID = 0x33,
 };
+
+typedef struct{
+	uint8_t vendor[3];
+	uint8_t subcmd;
+	const uint8_t *data;
+	uint16_t data_len;
+}osdp_mfg_t;
 
 void osdp_init(void);
 void osdp_on_rx_byte(uint8_t byte);
