@@ -11,44 +11,11 @@
 #error "Unsupported CONFIG_STORAGE value"
 #endif
 
-typedef struct __attribute__((packed)) {
-    uint32_t seq;
-    config_storage_t cfg;
-} config_flash_record_t;
-
-static const uint8_t default_osdp_cap[16u * 3u] = {
-    0x01, 0x01, 0x04,
-    0x02, 0x01, 0x04,
-    0x03, 0x00, 0x00,
-    0x04, 0x01, 0x01,
-    0x05, 0x00, 0x00,
-    0x06, 0x00, 0x00,
-    0x07, 0x00, 0x00,
-    0x08, 0x01, 0x00,
-    0x09, 0x00, 0x00,
-    0x0A, 0x00, 0x01,
-    0x0B, 0x00, 0x01,
-    0x0C, 0x00, 0x00,
-    0x0D, 0x00, 0x00,
-    0x0E, 0x00, 0x00,
-    0x0F, 0x00, 0x00,
-    0x10, 0x01, 0x00
-};
-
-static const uint8_t default_osdp_pdid[12u] = {
-    'P', 'R', 'S',
-    1u,
-    1u,
-    0x01u, 0x00u, 0x00u, 0x00u,
-    1u, 1u, 1u
-};
-
 static bool config_is_valid_pdid(const uint8_t pdid[12u])
 {
     if (!pdid) {
         return false;
     }
-
     // Vendor code должен быть печатным ASCII.
     for (uint32_t i = 0u; i < 3u; ++i) {
         if (pdid[i] < 0x20u || pdid[i] > 0x7Eu) {
@@ -81,7 +48,7 @@ static void config_apply_defaults_if_needed(config_storage_t *cfg)
         return;
     }
 
-    if (cfg->osdp_addr == 0u || cfg->osdp_addr == 0xFFu) {
+    if (cfg->osdp_addr < 1u || cfg->osdp_addr > 0xFEu) {
         cfg->osdp_addr = 0x01u;
     }
     if (cfg->osdp_baud < 9600u || cfg->osdp_baud > 115200u) {
@@ -209,7 +176,59 @@ void config_storage_save(const config_storage_t *cfg_in)  //загружаем �
 #endif
 }
 
-void config_storage_get_seq(uint32_t *seq){
-    if (!seq) return;
-    
+uint32_t config_storage_get_seq(void)
+{
+    config_flash_record_t rec;
+    memset(&rec, 0, sizeof(rec));
+    if (!config_read_record(&rec)) {
+        return 0u;
+    }
+    return rec.seq;
+}
+
+uint8_t config_storage_get_osdp_addr(void)
+{
+    config_storage_t cfg;
+    if (!config_storage_load(&cfg)) {
+        config_storage_default(&cfg);
+    }
+    return cfg.osdp_addr;
+}
+
+uint32_t config_storage_get_osdp_baud(void)
+{
+    config_storage_t cfg;
+    if (!config_storage_load(&cfg)) {
+        config_storage_default(&cfg);
+    }
+    return cfg.osdp_baud;
+}
+
+void config_storage_reset(void){
+    config_flash_record_t rec;
+    config_storage_default(&rec.cfg);
+    rec.seq = 1u;
+
+#if (CONFIG_STORAGE == CONFIG_STORAGE_EEPROM)
+    eeprom_write_bytes(CONFIG_EEPROM_BASE, (const uint8_t *)&rec, sizeof(rec));
+    {
+        uint32_t start_ms = ms_ticks;
+        while (eeprom_is_busy()) {
+            if ((ms_ticks - start_ms) > 50u) {
+                return;
+            }
+        }
+    }
+    if (eeprom_had_error()) {
+        return;
+    }
+#else
+    extflash_init_spi0_cs_pb1();
+    if (!extflash_erase_range_4k(CONFIG_EXTFLASH_BASE, CONFIG_EXTFLASH_AREA_SIZE)) {
+        return;
+    }
+    if (!extflash_write(CONFIG_EXTFLASH_BASE, (const uint8_t *)&rec, sizeof(rec))) {
+        return;
+    }
+#endif
 }

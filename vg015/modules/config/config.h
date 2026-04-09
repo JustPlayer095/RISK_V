@@ -31,6 +31,38 @@ typedef struct __attribute__((packed)) {
     uint8_t  osdp_cap[16u * 3u]; // capability triplets: FunctionCode, ComplianceLevel, NumberOfItems
 } config_storage_t;
 
+typedef struct __attribute__((packed)) {
+    uint32_t seq;
+    config_storage_t cfg;
+} config_flash_record_t;
+
+static const uint8_t default_osdp_cap[16u * 3u] = {
+    0x01, 0x01, 0x04,
+    0x02, 0x01, 0x04,
+    0x03, 0x00, 0x00,
+    0x04, 0x01, 0x01,
+    0x05, 0x00, 0x00,
+    0x06, 0x00, 0x00,
+    0x07, 0x00, 0x00,
+    0x08, 0x01, 0x00,
+    0x09, 0x00, 0x00,
+    0x0A, 0x00, 0x01,
+    0x0B, 0x00, 0x01,
+    0x0C, 0x00, 0x00,
+    0x0D, 0x00, 0x00,
+    0x0E, 0x00, 0x00,
+    0x0F, 0x00, 0x00,
+    0x10, 0x01, 0x00
+};
+
+static const uint8_t default_osdp_pdid[12u] = {
+    'P', 'R', 'S',
+    1u,
+    1u,
+    0x01u, 0x00u, 0x00u, 0x00u,
+    1u, 1u, 1u
+};
+
 // Заполнить структуру значениями по умолчанию
 void config_storage_default(config_storage_t *cfg);
 
@@ -39,6 +71,16 @@ bool config_storage_load(config_storage_t *cfg);
 
 // Записать структуру в выбранную внешнюю память (seq увеличивается при каждом успешном save).
 void config_storage_save(const config_storage_t *cfg);
+
+// Получить seq из записи конфига 
+uint32_t config_storage_get_seq(void);
+
+// Получить OSDP addr и baud из записи (с fallback на default)
+uint8_t config_storage_get_osdp_addr(void);
+uint32_t config_storage_get_osdp_baud(void);
+
+// Сбросить конфиг в значения по умолчанию
+void config_storage_reset(void);
 
 #endif // CONFIG_STORAGE_H
 
