@@ -7,8 +7,6 @@
 #include "plib/inc/plib015_tmr32.h"
 #include "modules/osdp/osdp.h"
 #include "modules/timebase/timebase.h"
-#include "modules/config/config.h"
-#include <stdio.h>
 #include <inttypes.h>
 // #include "modules/calc/calc.h"
 // #include "modules/driver/ws0010_1602.h"
@@ -117,10 +115,9 @@ void periph_init()
     UART4_init();
     retarget_init();
     tmr32_init_1ms();
+    osdp_init();
     irq_init();
     InterruptEnable();
-    osdp_init();
-    printf("OSDP initialized\n\r");
     // ws0010_init();
     // ws0010_goto(0, 0);
     // ws0010_print("HELLO WS0010");
@@ -134,12 +131,6 @@ void periph_init()
 int main(void)
 {
   periph_init();
-  uint32_t seq = config_storage_get_seq();
-  printf("Seq: %u\n\r", seq);
-  uint8_t addr = config_storage_get_osdp_addr();
-  uint32_t baud = config_storage_get_osdp_baud();
-  printf("Addr: %u\n\r", addr);
-  printf("Baud: %u\n\r", baud);
   while (1) {
       __asm volatile("wfi");
   }
