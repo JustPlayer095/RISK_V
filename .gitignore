@@ -60,3 +60,7 @@ bootloader/bl_log.html
 
 # Local AI assistant workspace
 .claude/
+.cursor/
+WORKPROJECT_AI_PLAYBOOK.md
+AGENTS.md
+tools/tests
