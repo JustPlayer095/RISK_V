@@ -3,8 +3,8 @@
 #define WS0010_1602_H
 
 #include <stdint.h>
-#include "../../device/Include/K1921VG015.h"
-#include "../../plib/inc/plib015_gpio.h"
+#include "../../../device/Include/K1921VG015.h"
+#include "../../../plib/inc/plib015_gpio.h"
 
 // --- Pin mapping (override via compiler -D...) ---
 // Default mapping uses GPIOC pins 0..6 to avoid conflicts with:

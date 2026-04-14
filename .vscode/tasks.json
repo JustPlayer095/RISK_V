@@ -4,18 +4,19 @@
         {
             "label": "start-openocd",
             "type": "shell",
-            "command": "${env:OPENOCD_EXE}",
+            "hide": true,
+            "command": "${config:workproject.openocdExe}",
             "args": [
-                "-s", "${env:OPENOCD_SCRIPTS_ROOT}",
-                "-s", "${env:OPENOCD_SCRIPTS_ROOT}/interface",
-                "-s", "${env:OPENOCD_SCRIPTS_ROOT}/target",
-                "-f", "./interface/onboard_ftdi.cfg",
-                "-f", "./target/k1921vg015.cfg",
-                "-c", "init;halt",
+                "-s", "${config:workproject.openocdScriptsRoot}",
+                "-s", "${config:workproject.openocdScriptsRoot}/interface",
+                "-s", "${config:workproject.openocdScriptsRoot}/target",
+                "-f", "${config:workproject.openocdInterfaceCfg}",
+                "-f", "${config:workproject.openocdTargetCfg}",
+                "-c", "${config:workproject.openocdInitCmd}",
                 "-d1"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/${input:appProjectDir}"
+                "cwd": "${workspaceFolder}"
             },
             "isBackground": true,
             "problemMatcher": {
@@ -41,6 +42,7 @@
         {
             "label": "bootloader-build",
             "type": "shell",
+            "hide": true,
             "command": "${env:MAKE_EXE}",
             "args": [
                 "all",
@@ -103,9 +105,9 @@
             "problemMatcher": []
         },
         {
-            "label": "bootloader-flash",
+            "label": "bootloader-build-and-flash",
             "type": "shell",
-            "command": "${env:GDB_EXE}",
+            "command": "${config:workproject.gdbExe}",
             "args": [
                 "${workspaceFolder}/bootloader/build/bootloader.elf",
                 "-q",
@@ -140,14 +142,6 @@
             "problemMatcher": []
         },
         {
-            "label": "bootloader-build-and-flash",
-            "dependsOn": [
-                "bootloader-flash"
-            ],
-            "dependsOrder": "sequence",
-            "problemMatcher": []
-        },
-        {
             "label": "setup-toolchain-paths",
             "type": "shell",
             "command": "powershell",
@@ -168,47 +162,15 @@
             "problemMatcher": []
         },
         {
-            "label": "app-hex-to-bin",
-            "type": "shell",
-            "command": "${env:OBJCOPY_EXE}",
-            "args": [
-                "-I",
-                "ihex",
-                "-O",
-                "binary",
-                "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.hex",
-                "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "shell": {
-                    "executable": "C:\\Windows\\System32\\cmd.exe",
-                    "args": [
-                        "/d",
-                        "/c"
-                    ]
-                }
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            },
-            "problemMatcher": []
-        },
-        {
             "label": "app-flash-via-bootloader",
             "type": "shell",
-            "command": "${config:workproject.pythonExe}",
+            "command": "powershell",
             "args": [
-                "${workspaceFolder}/bootloader/boot.py",
-                "--port",
-                "auto",
-                "--bin",
-                "${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin",
-                "--baud",
-                "${config:workproject.bootBaud}",
-                "--timeout",
-                "30"
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "& { if ('${input:appBuildMode}' -eq 'build') { Push-Location '${workspaceFolder}/${input:appProjectDir}'; try { & '${env:MAKE_EXE}' all 'COMPILER_PATH=${env:COMPILER_PATH}' 'PREFIX=riscv64-unknown-elf-' 'MARCH=rv32imfc_zicsr' 'MABI=ilp32f' 'OPTIMISATION=-O0' 'TARGET_NAME=${input:appProjectName}'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { Pop-Location } }; & '${config:workproject.pythonExe}' '${workspaceFolder}/bootloader/boot.py' '--port' '${config:workproject.bootPort}' '--bin' '${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin' '--baud' '${config:workproject.bootBaud}' '--timeout' '${config:workproject.bootTimeout}'; exit $LASTEXITCODE }"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
@@ -227,15 +189,32 @@
             "problemMatcher": []
         },
         {
-            "label": "app-hex-to-bin-and-flash-via-bootloader",
-            "dependsOn": [
-                "app-hex-to-bin",
-                "app-flash-via-bootloader"
-
+            "label": "osdp-filetransfer",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "& { if ('${input:appBuildMode}' -eq 'build') { Push-Location '${workspaceFolder}/${input:appProjectDir}'; try { & '${env:MAKE_EXE}' all 'COMPILER_PATH=${env:COMPILER_PATH}' 'PREFIX=riscv64-unknown-elf-' 'MARCH=rv32imfc_zicsr' 'MABI=ilp32f' 'OPTIMISATION=-O0' 'TARGET_NAME=${input:appProjectName}'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { Pop-Location } }; & '${config:workproject.pythonExe}' '${workspaceFolder}/tools/osdp_filetransfer.py' '--port' '${config:workproject.osdpPort}' '--baud' '${config:workproject.osdpBaud}' '--addr' '${config:workproject.osdpAddr}' '--frag' '${config:workproject.osdpFrag}' '${workspaceFolder}/${input:appProjectDir}/build/${input:appProjectName}.bin'; exit $LASTEXITCODE }"
             ],
-            "dependsOrder": "sequence",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "C:\\Windows\\System32\\cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
             "problemMatcher": []
-        }
+        },
     ],
     "inputs": [
         {
@@ -249,6 +228,16 @@
             "type": "promptString",
             "description": "Имя выходного файла приложения (без расширения)",
             "default": "vg015"
+        },
+        {
+            "id": "appBuildMode",
+            "type": "pickString",
+            "description": "Перед запуском собрать приложение?",
+            "options": [
+                "reuse",
+                "build"
+            ],
+            "default": "reuse"
         }
     ]
 }

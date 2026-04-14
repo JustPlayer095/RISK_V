@@ -1,8 +1,8 @@
-#include "../driver/eeprom.h"
+#include "eeprom.h"
 #include <stdint.h>
-#include "../../device/Include/K1921VG015.h"
-#include "../../device/Include/plic.h"
-#include "../../plib/inc/plib015_gpio.h"
+#include "../../../device/Include/K1921VG015.h"
+#include "../../../device/Include/plic.h"
+#include "../../../plib/inc/plib015_gpio.h"
 
 // Глобальная частота системного тактирования (задаётся в system_k1921vg015.c)
 extern uint32_t SystemCoreClock;

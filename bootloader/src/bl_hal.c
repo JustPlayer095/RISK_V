@@ -185,6 +185,33 @@ void bl_hal_set_update_mode_leds(bool on) {
     }
 }
 
+/* Код ошибки отображается маской LED:
+ * 1: PA12
+ * 2: PA12+PA13 (вариант 1)
+ * 3: PA14+PA15 (вариант 2)
+ * 4: PA14
+ * 5: PA15
+ * 6: PA12+PA13+PA14+PA15
+ * 0/другое: очистить.
+ */
+void bl_hal_set_error_code(uint8_t code) {
+    uint32_t mask = 0u;
+    switch (code) {
+        case 1u: mask = (uint32_t)1u << 12; break;
+        case 2u: mask = ((uint32_t)1u << 12) | ((uint32_t)1u << 13); break;
+        case 3u: mask = ((uint32_t)1u << 14) | ((uint32_t)1u << 15); break;
+        case 4u: mask = (uint32_t)1u << 14; break;
+        case 5u: mask = (uint32_t)1u << 15; break;
+        case 6u: mask = BL_UPDATE_LED_MASK; break;
+        default: mask = 0u; break;
+    }
+
+    BL_UPDATE_LED_PORT->DATAOUTCLR = BL_UPDATE_LED_MASK;
+    if (mask != 0u) {
+        BL_UPDATE_LED_PORT->DATAOUTSET = mask;
+    }
+}
+
 /* Стирает все страницы flash, пересекающиеся с заданным диапазоном адресов. */
 bool bl_hal_flash_erase_range(uint32_t abs_addr, uint32_t size_bytes) {
     uint32_t start;

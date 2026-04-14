@@ -7,7 +7,7 @@
 #define BL_SIZE_BYTES        ((uint32_t)0x00002000u)
 
 #define APP_BASE_ADDR        ((uint32_t)0x80002000u)
-#define APP_MAX_SIZE_BYTES   ((uint32_t)0x000FE000u)
+#define APP_MAX_SIZE_BYTES   ((uint32_t)0x000FD000u)
 #define APP_END_ADDR         (APP_BASE_ADDR + APP_MAX_SIZE_BYTES)
 
 #define REPLY_WAITING              ((uint8_t)1u)

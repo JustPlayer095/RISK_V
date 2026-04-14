@@ -115,8 +115,13 @@ hex:
 	$(RISCV-OBJCOPY) -O ihex $(BUILD_PATH)/$(TARGET_NAME).elf $(BUILD_PATH)/$(TARGET_NAME).hex
 	@ echo "...DONE"
 	
+bin:
+	@ echo "BIN "
+	$(RISCV-OBJCOPY) -O binary $(BUILD_PATH)/$(TARGET_NAME).elf $(BUILD_PATH)/$(TARGET_NAME).bin
+	@ echo "...DONE"
 
-all: header clean make_build $(BUILD_PATH)/$(TARGET_NAME).elf $(BUILD_PATH)/$(TARGET_NAME).dump hex size
+
+all: header clean make_build $(BUILD_PATH)/$(TARGET_NAME).elf $(BUILD_PATH)/$(TARGET_NAME).dump hex bin size
 	
 	
 debug: all

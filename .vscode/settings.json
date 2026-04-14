@@ -19,5 +19,10 @@
     "workproject.pythonExe": "python",
     "workproject.bootPort": "auto",
     "workproject.bootBaud": "115200",
-    "workproject.bootTimeout": "30"
+    "workproject.bootTimeout": "30",
+    "workproject.osdpPort": "auto",
+    "workproject.osdpPortFilter": "CH340|CP210|FTDI|USB",
+    "workproject.osdpBaud": "115200",
+    "workproject.osdpAddr": "1",
+    "workproject.osdpFrag": "200"
 }
